@@ -136,6 +136,9 @@ tasks.test {
         systemProperty("testpilot.layoutlib.runtime", layoutlibRuntime.asDirectory().absolutePath)
         systemProperty("testpilot.layoutlib.resources", layoutlibResources.asDirectory().absolutePath)
     }
+
+    // Pass through testpilot.record system property for golden image recording
+    systemProperty("testpilot.record", System.getProperty("testpilot.record") ?: "false")
 }
 
 java {
