@@ -43,6 +43,7 @@ class BytecodeRewriter {
 
         // Resources
         "android/content/res/Resources" to "io/johnsonlee/testpilot/simulator/resources/Resources",
+        "android/content/res/Configuration" to "io/johnsonlee/testpilot/simulator/resources/Configuration",
     )
 
     private val remapper = object : Remapper() {

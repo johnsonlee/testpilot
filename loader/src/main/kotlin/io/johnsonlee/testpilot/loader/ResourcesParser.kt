@@ -65,6 +65,25 @@ class ResourcesParser {
         }
 
         /**
+         * Gets all configuration variants for a resource ID.
+         * Returns a list of (config, entry) pairs across all config chunks.
+         */
+        fun getResourceVariants(resourceId: Int): List<Pair<ResTableConfig, ResourceEntry>> {
+            val packageId = (resourceId shr 24) and 0xFF
+            val typeId = (resourceId shr 16) and 0xFF
+            val entryId = resourceId and 0xFFFF
+
+            val pkg = packages.find { it.id == packageId } ?: return emptyList()
+            return pkg.types
+                .filter { it.id == typeId }
+                .mapNotNull { type ->
+                    type.entries.find { it.id == entryId }?.let { entry ->
+                        type.config to entry
+                    }
+                }
+        }
+
+        /**
          * Builds a map of resource ID to resource name (for R.java generation).
          */
         fun buildResourceMap(): Map<Int, String> {
@@ -87,9 +106,48 @@ class ResourcesParser {
         val types: List<ResourceType>
     )
 
+    /**
+     * Parsed ResTable_config struct representing a device configuration.
+     */
+    data class ResTableConfig(
+        val size: Int,
+        val mcc: Int = 0,
+        val mnc: Int = 0,
+        val language: String = "",
+        val country: String = "",
+        val orientation: Int = 0,
+        val touchscreen: Int = 0,
+        val density: Int = 0,
+        val keyboard: Int = 0,
+        val navigation: Int = 0,
+        val inputFlags: Int = 0,
+        val screenWidth: Int = 0,
+        val screenHeight: Int = 0,
+        val sdkVersion: Int = 0,
+        val minorVersion: Int = 0,
+        val screenLayout: Int = 0,
+        val uiMode: Int = 0,
+        val smallestScreenWidthDp: Int = 0,
+        val screenWidthDp: Int = 0,
+        val screenHeightDp: Int = 0
+    ) {
+        val isDefault: Boolean
+            get() = language.isEmpty() && country.isEmpty() && density == 0 &&
+                    orientation == 0 && uiMode == 0 && screenLayout == 0 &&
+                    sdkVersion == 0 && mcc == 0 && mnc == 0 &&
+                    smallestScreenWidthDp == 0 && screenWidthDp == 0 && screenHeightDp == 0
+
+        val nightMode: Int get() = (uiMode shr 4) and 0x3
+
+        companion object {
+            val DEFAULT = ResTableConfig(size = 0)
+        }
+    }
+
     data class ResourceType(
         val id: Int,
         val name: String,
+        val config: ResTableConfig,
         val entries: List<ResourceEntry>
     )
 
@@ -301,8 +359,8 @@ class ResourcesParser {
         val entryCount = buffer.int
         val entriesStart = buffer.int
 
-        // Read config (simplified - skip for now)
-        buffer.position(chunkStart + headerSize)
+        // Read ResTable_config
+        val config = parseConfig(chunkStart + headerSize)
 
         // Read entry offsets
         val entryOffsets = (0 until entryCount).map { buffer.int }
@@ -321,7 +379,68 @@ class ResourcesParser {
             }
         }
 
-        return ResourceType(id, typeName, entries)
+        return ResourceType(id, typeName, config, entries)
+    }
+
+    private fun parseConfig(endPosition: Int): ResTableConfig {
+        val configStart = buffer.position()
+        val configSize = buffer.int
+
+        if (configSize < 28) {
+            // Too small, return default
+            buffer.position(endPosition)
+            return ResTableConfig.DEFAULT
+        }
+
+        val mcc = buffer.short.toInt() and 0xFFFF
+        val mnc = buffer.short.toInt() and 0xFFFF
+
+        // Language and country are 2 bytes each
+        val langBytes = ByteArray(2)
+        buffer.get(langBytes)
+        val language = if (langBytes[0] != 0.toByte()) String(langBytes).trimEnd('\u0000') else ""
+
+        val countryBytes = ByteArray(2)
+        buffer.get(countryBytes)
+        val country = if (countryBytes[0] != 0.toByte()) String(countryBytes).trimEnd('\u0000') else ""
+
+        val orientation = buffer.get().toInt() and 0xFF
+        val touchscreen = buffer.get().toInt() and 0xFF
+        val density = buffer.short.toInt() and 0xFFFF
+
+        val keyboard = buffer.get().toInt() and 0xFF
+        val navigation = buffer.get().toInt() and 0xFF
+        val inputFlags = buffer.get().toInt() and 0xFF
+        buffer.get() // inputPad0
+
+        val screenWidth = buffer.short.toInt() and 0xFFFF
+        val screenHeight = buffer.short.toInt() and 0xFFFF
+
+        val sdkVersion = if (configSize >= 32) buffer.short.toInt() and 0xFFFF else 0
+        val minorVersion = if (configSize >= 32) buffer.short.toInt() and 0xFFFF else 0
+
+        val screenLayout = if (configSize >= 36) buffer.get().toInt() and 0xFF else 0
+        val uiMode = if (configSize >= 36) buffer.get().toInt() and 0xFF else 0
+        val smallestScreenWidthDp = if (configSize >= 36) buffer.short.toInt() and 0xFFFF else 0
+
+        val screenWidthDp = if (configSize >= 40) buffer.short.toInt() and 0xFFFF else 0
+        val screenHeightDp = if (configSize >= 40) buffer.short.toInt() and 0xFFFF else 0
+
+        // Skip any remaining bytes in config
+        buffer.position(endPosition)
+
+        return ResTableConfig(
+            size = configSize,
+            mcc = mcc, mnc = mnc,
+            language = language, country = country,
+            orientation = orientation, touchscreen = touchscreen, density = density,
+            keyboard = keyboard, navigation = navigation, inputFlags = inputFlags,
+            screenWidth = screenWidth, screenHeight = screenHeight,
+            sdkVersion = sdkVersion, minorVersion = minorVersion,
+            screenLayout = screenLayout, uiMode = uiMode,
+            smallestScreenWidthDp = smallestScreenWidthDp,
+            screenWidthDp = screenWidthDp, screenHeightDp = screenHeightDp
+        )
     }
 
     private fun parseEntry(entryId: Int, keyStrings: List<String>): ResourceEntry? {
