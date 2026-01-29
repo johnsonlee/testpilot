@@ -97,16 +97,14 @@ class TestPilot private constructor(
 
         // Find activities
         val application = root.children.find { it.name == "application" }
-        val activityList = mutableListOf<ActivityInfo>()
+        val activityMap = mutableMapOf<String, ActivityInfo>()
 
-        application?.children?.filter { it.name == "activity" }?.forEach { activityElement ->
-            val name = activityElement.attributes.find { it.name == "name" }?.value?.toString() ?: return@forEach
-
-            // Check for launcher intent-filter
+        // Helper to check intent-filter for MAIN and LAUNCHER
+        fun checkIntentFilters(element: BinaryXmlParser.XmlElement): Pair<Boolean, Boolean> {
             var isLauncher = false
             var isMain = false
 
-            activityElement.children.filter { it.name == "intent-filter" }.forEach { intentFilter ->
+            element.children.filter { it.name == "intent-filter" }.forEach { intentFilter ->
                 intentFilter.children.forEach { child ->
                     when (child.name) {
                         "action" -> {
@@ -125,19 +123,47 @@ class TestPilot private constructor(
                 }
             }
 
-            // Resolve full class name
-            val fullName = if (name.startsWith(".")) {
+            return isLauncher to isMain
+        }
+
+        // Helper to resolve full class name
+        fun resolveClassName(name: String): String {
+            return if (name.startsWith(".")) {
                 "$packageName$name"
             } else if (!name.contains(".")) {
                 "$packageName.$name"
             } else {
                 name
             }
-
-            activityList.add(ActivityInfo(fullName, isLauncher, isMain))
         }
 
-        activities = activityList
+        // Parse activities
+        application?.children?.filter { it.name == "activity" }?.forEach { activityElement ->
+            val name = activityElement.attributes.find { it.name == "name" }?.value?.toString() ?: return@forEach
+            val fullName = resolveClassName(name)
+            val (isLauncher, isMain) = checkIntentFilters(activityElement)
+            activityMap[fullName] = ActivityInfo(fullName, isLauncher, isMain)
+        }
+
+        // Parse activity-alias (can define launcher for target activity)
+        application?.children?.filter { it.name == "activity-alias" }?.forEach { aliasElement ->
+            val targetActivity = aliasElement.attributes.find { it.name == "targetActivity" }?.value?.toString() ?: return@forEach
+            val fullTargetName = resolveClassName(targetActivity)
+            val (isLauncher, isMain) = checkIntentFilters(aliasElement)
+
+            // If this alias has launcher intent, update the target activity
+            if (isLauncher || isMain) {
+                val existing = activityMap[fullTargetName]
+                if (existing != null) {
+                    activityMap[fullTargetName] = existing.copy(
+                        isLauncher = existing.isLauncher || isLauncher,
+                        isMain = existing.isMain || isMain
+                    )
+                }
+            }
+        }
+
+        activities = activityMap.values.toList()
     }
 
     /**

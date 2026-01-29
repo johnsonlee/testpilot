@@ -15,4 +15,4 @@ Thumbs.db
 
 # Kotlin
 *.class
-test-fixtures/
+test-fixtures/*.apk
