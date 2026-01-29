@@ -10,4 +10,6 @@ abstract class Context {
     abstract val resources: Resources
 
     abstract fun getString(resId: Int): String
+
+    open fun getColor(resId: Int): Int = resources.getColor(resId)
 }

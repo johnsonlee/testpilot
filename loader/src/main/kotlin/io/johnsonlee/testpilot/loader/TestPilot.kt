@@ -6,6 +6,7 @@ import io.johnsonlee.testpilot.renderer.RenderEnvironment
 import io.johnsonlee.testpilot.renderer.RenderResult
 import io.johnsonlee.testpilot.simulator.activity.Activity
 import io.johnsonlee.testpilot.simulator.activity.ActivityController
+import io.johnsonlee.testpilot.simulator.resources.Configuration
 import io.johnsonlee.testpilot.simulator.resources.Resources
 import io.johnsonlee.testpilot.simulator.view.MotionEvent
 import io.johnsonlee.testpilot.simulator.view.View
@@ -193,7 +194,10 @@ class TestPilot private constructor(
      * @param activityClassName The fully qualified class name of the activity to launch.
      *                          If null, launches the default launcher activity.
      */
-    fun launch(activityClassName: String? = null): ActivitySession {
+    fun launch(
+        activityClassName: String? = null,
+        configuration: Configuration = Configuration.DEFAULT
+    ): ActivitySession {
         val targetActivity = activityClassName ?: getLauncherActivity()?.name
             ?: throw IllegalStateException("No launcher activity found in manifest")
 
@@ -214,7 +218,10 @@ class TestPilot private constructor(
         }
 
         val window = Window(width = 480, height = 800)
-        val resources = Resources()
+        val resources = Resources(configuration)
+        resourceTable?.let {
+            resources.resolver = ResourceTableResolver(it, configuration)
+        }
 
         // Try to instantiate the actual activity class
         val activity: Activity = if (activityClass != null && Activity::class.java.isAssignableFrom(activityClass)) {
