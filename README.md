@@ -21,6 +21,19 @@ session.tap(R.id.login_button)
 
 // Lifecycle control
 session.pause().resume().stop().destroy()
+
+// Screenshot (using layoutlib for pixel-perfect rendering)
+val screenshot = session.takeScreenshot("""
+    <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Hello World" />
+    </LinearLayout>
+""")
+ImageIO.write(screenshot, "PNG", File("screenshot.png"))
 ```
 
 ## Product Direction
@@ -120,26 +133,43 @@ Replace Maestro + Emulator with pure JVM execution for faster, more reliable tes
 │  │              Android API Shim Layer                  │    │
 │  │     Activity | View | Resources | Intent | ...      │    │
 │  └─────────────────────────────────────────────────────┘    │
+├─────────────────────────────────────────────────────────────┤
+│                   Rendering (Layoutlib)                     │
 │  ┌─────────────────────────────────────────────────────┐    │
-│  │              Rendering Backend                       │    │
-│  │              Skiko / AWT Graphics2D                  │    │
+│  │              Android Official Layoutlib              │    │
+│  │        Pixel-perfect rendering on JVM               │    │
 │  └─────────────────────────────────────────────────────┘    │
 ├─────────────────────────────────────────────────────────────┤
-│                        JVM (JDK 17+)                        │
+│                        JVM (JDK 21+)                        │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Dual-Layer Design
+
+TestPilot uses a **dual-layer architecture** to achieve both accurate behavior simulation and pixel-perfect rendering:
+
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| **Behavior Simulation** | Bytecode Rewriting + Shim | Activity lifecycle, touch events, view hierarchy traversal |
+| **Rendering** | Android Layoutlib | Screenshot capture, visual regression testing |
+
+**Why this approach?**
+- **Shim Layer**: Fast, lightweight simulation for behavior testing (lifecycle, touch dispatch)
+- **Layoutlib**: Android's official rendering library used by Android Studio, ensures pixel-perfect screenshots that match real device rendering
+
+This is similar to how [Paparazzi](https://github.com/cashapp/paparazzi) (by Cash App) works for screenshot testing.
 
 ## Key Components
 
 | Component | Approach |
 |-----------|----------|
-| APK Processing | Unzip + dex2jar + ASM bytecode rewriting |
+| APK Processing | Unzip + dexlib2 + ASM bytecode rewriting |
 | Activity Lifecycle | State machine + callback chain |
 | View System | measure/layout/draw pipeline implementation |
 | LayoutInflater | Binary XML parsing + reflection-based construction |
 | Resources | resources.arsc parsing + qualifier resolution |
 | Event Dispatch | TouchEvent simulation via View hierarchy |
-| Rendering Backend | Skiko or AWT Graphics2D |
+| Rendering | Android Layoutlib (official Android rendering library) |
 
 ## Scope & Limitations
 
@@ -191,15 +221,35 @@ class ApkLoadingTest {
 ### 3. Visual Regression - Screenshot Comparison
 ```kotlin
 class LayoutRenderingTest {
+    private val snapshots = SnapshotManager(File("src/test/snapshots"))
+
     @Test
     fun `LinearLayout vertical should match Android rendering`() {
-        val app = TestPilot.load("test-fixtures/layout-test.apk")
-        app.launch("com.example.LayoutActivity")
+        val session = TestPilot.load("test-fixtures/layout-test.apk").launch()
 
-        val screenshot = app.takeScreenshot()
-        val golden = loadGolden("layout_activity.png")
+        val screenshot = session.takeScreenshot("""
+            <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Hello World" />
+            </LinearLayout>
+        """)
 
-        assertThat(screenshot).isVisuallyEqualTo(golden, tolerance = 0.01)
+        // Assert against golden image with 1% tolerance
+        screenshot.assertMatchesSnapshot(snapshots, "layout_activity", tolerance = 0.01)
+    }
+
+    @Test
+    fun `record new golden image`() {
+        val session = TestPilot.load("app.apk").launch()
+        val screenshot = session.takeScreenshot(layoutXml)
+
+        // Auto-record if golden doesn't exist
+        screenshot.assertMatchesSnapshot(snapshots, "new_screen", recordIfMissing = true)
     }
 }
 ```
@@ -242,15 +292,19 @@ class ViewMeasureSpecTest {
 
 **Result**: Full APK loading pipeline with touch event dispatch. Supports tap interactions and event listeners.
 
-### Phase 3: Real App Support (3-4 weeks)
+### Phase 3: Real App Support (3-4 weeks) 🚧 IN PROGRESS
+- [x] **Layoutlib Integration** - Android official rendering library
+  - [x] Add layoutlib dependencies
+  - [x] Create renderer module
+  - [x] Implement `takeScreenshot()` API
+  - [x] Visual comparison utilities (ImageComparator, SnapshotManager, assertions)
 - [ ] Complete Resources system with qualifiers
 - [ ] Fragment support
 - [ ] RecyclerView
 - [ ] ViewPager
 - [ ] More widgets coverage
-- [ ] Screenshot capture & visual comparison
 
-**Goal**: Test medium-complexity real-world APKs
+**Goal**: Test medium-complexity real-world APKs with pixel-perfect screenshots
 
 ### Phase 4: Production Ready (4-6 weeks)
 - [ ] Performance optimization (caching, incremental processing)
@@ -284,7 +338,9 @@ class ViewMeasureSpecTest {
 ## Prior Art & Inspiration
 
 - **Robolectric**: Shadow-based Android testing (requires source, TestPilot takes APK)
-- **dex2jar**: DEX to JAR conversion (core dependency)
+- **Paparazzi**: Screenshot testing using Layoutlib (requires source, TestPilot takes APK)
+- **Android Layoutlib**: Official Android rendering library used by Android Studio
+- **dex2jar/dexlib2**: DEX to JAR conversion
 - **Maestro**: Test orchestration API inspiration
 - **ASM**: Bytecode manipulation library
 

@@ -12,6 +12,9 @@ dependencies {
     // Simulator module for shim classes
     implementation(project(":simulator"))
 
+    // Renderer module for layoutlib-based screenshots
+    implementation(project(":renderer"))
+
     // Android tools for DEX processing
     implementation("com.android.tools.smali:smali-dexlib2:3.0.3")
 
@@ -32,7 +35,7 @@ tasks.test {
 }
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(21)
 }
 
 publishing {
