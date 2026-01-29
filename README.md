@@ -11,10 +11,16 @@ TestPilot enables **testing any Android APK** on standard JVM without emulators 
 Input: APK file → Output: Test results on pure JVM
 
 ```kotlin
-TestPilot.load("app.apk")
-    .launch("com.example.MainActivity")
-    .tap(R.id.login_button)
-    .assertText("Welcome")
+val session = TestPilot.load("app.apk").launch()
+
+// Tap by coordinates
+session.tap(100f, 200f)
+
+// Tap by view ID
+session.tap(R.id.login_button)
+
+// Lifecycle control
+session.pause().resume().stop().destroy()
 ```
 
 ## Product Direction
@@ -231,10 +237,10 @@ class ViewMeasureSpecTest {
 - [x] Resources.arsc parsing (resource ID mapping)
 - [x] LayoutInflater with binary XML
 - [x] Common widgets (TextView, Button, ImageView, EditText, ScrollView, ProgressBar, etc.)
-- [ ] Touch event dispatch
+- [x] Touch event dispatch
 - [x] TestPilot SDK basic API
 
-**Result**: Successfully loaded real APK (3713 classes, 7071 resources, 9 activities), Activity lifecycle test passed
+**Result**: Full APK loading pipeline with touch event dispatch. Supports tap interactions and event listeners.
 
 ### Phase 3: Real App Support (3-4 weeks)
 - [ ] Complete Resources system with qualifiers

@@ -2,6 +2,7 @@ package io.johnsonlee.testpilot.simulator.window
 
 import io.johnsonlee.testpilot.simulator.graphics.Canvas
 import io.johnsonlee.testpilot.simulator.view.MeasureSpec
+import io.johnsonlee.testpilot.simulator.view.MotionEvent
 import io.johnsonlee.testpilot.simulator.view.View
 
 /**
@@ -34,5 +35,15 @@ class Window(
         val canvas = Canvas(width, height)
         contentView?.draw(canvas)
         return canvas
+    }
+
+    /**
+     * Dispatch a touch event to the view hierarchy.
+     *
+     * @param event The motion event to dispatch.
+     * @return True if the event was handled, false otherwise.
+     */
+    fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        return contentView?.dispatchTouchEvent(event) ?: false
     }
 }

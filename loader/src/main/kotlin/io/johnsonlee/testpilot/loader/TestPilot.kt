@@ -3,6 +3,9 @@ package io.johnsonlee.testpilot.loader
 import io.johnsonlee.testpilot.simulator.activity.Activity
 import io.johnsonlee.testpilot.simulator.activity.ActivityController
 import io.johnsonlee.testpilot.simulator.resources.Resources
+import io.johnsonlee.testpilot.simulator.view.MotionEvent
+import io.johnsonlee.testpilot.simulator.view.View
+import io.johnsonlee.testpilot.simulator.view.ViewGroup
 import io.johnsonlee.testpilot.simulator.window.Window
 import java.io.File
 
@@ -293,6 +296,84 @@ class TestPilot private constructor(
         fun destroy(): ActivitySession {
             controller.destroy()
             return this
+        }
+
+        // ==================== Touch Event Methods ====================
+
+        /**
+         * Simulates a tap at the specified coordinates.
+         *
+         * @param x The x coordinate of the tap.
+         * @param y The y coordinate of the tap.
+         * @return This session for chaining.
+         */
+        fun tap(x: Float, y: Float): ActivitySession {
+            val time = System.currentTimeMillis()
+
+            // Send ACTION_DOWN
+            val downEvent = MotionEvent.obtain(time, time, MotionEvent.ACTION_DOWN, x, y)
+            window.dispatchTouchEvent(downEvent)
+
+            // Send ACTION_UP
+            val upEvent = MotionEvent.obtain(time, time + 50, MotionEvent.ACTION_UP, x, y)
+            window.dispatchTouchEvent(upEvent)
+
+            return this
+        }
+
+        /**
+         * Simulates a tap on the view with the specified ID.
+         *
+         * @param viewId The resource ID of the view to tap.
+         * @return This session for chaining.
+         * @throws IllegalStateException if the view is not found.
+         */
+        fun tap(viewId: Int): ActivitySession {
+            val view = findViewByIdOrThrow(viewId)
+            val centerX = view.left + view.width / 2f
+            val centerY = view.top + view.height / 2f
+            return tap(centerX, centerY)
+        }
+
+        /**
+         * Dispatches a raw touch event to the window.
+         *
+         * @param event The motion event to dispatch.
+         * @return True if the event was handled, false otherwise.
+         */
+        fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            return window.dispatchTouchEvent(event)
+        }
+
+        /**
+         * Finds a view by its ID in the current activity.
+         *
+         * @param viewId The resource ID of the view.
+         * @return The view, or null if not found.
+         */
+        @Suppress("UNCHECKED_CAST")
+        fun <T : View> findViewById(viewId: Int): T? {
+            return findViewByIdRecursive(window.contentView, viewId) as? T
+        }
+
+        /**
+         * Finds a view by its ID, throwing if not found.
+         */
+        fun findViewByIdOrThrow(viewId: Int): View {
+            return findViewById(viewId)
+                ?: throw IllegalStateException("View with ID $viewId not found")
+        }
+
+        private fun findViewByIdRecursive(view: View?, id: Int): View? {
+            if (view == null) return null
+            if (view.id == id) return view
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) {
+                    val found = findViewByIdRecursive(view.getChildAt(i), id)
+                    if (found != null) return found
+                }
+            }
+            return null
         }
     }
 
