@@ -44,6 +44,12 @@ open class View(val context: Context) {
     // Click listener
     private var onClickListener: OnClickListener? = null
 
+    // Touch listener
+    private var onTouchListener: OnTouchListener? = null
+
+    // Touch state
+    private var isPressed: Boolean = false
+
     val width: Int get() = right - left
     val height: Int get() = bottom - top
 
@@ -120,8 +126,101 @@ open class View(val context: Context) {
         this.onClickListener = OnClickListener { listener(it) }
     }
 
+    fun setOnTouchListener(listener: OnTouchListener?) {
+        this.onTouchListener = listener
+    }
+
+    fun setOnTouchListener(listener: (View, MotionEvent) -> Boolean) {
+        this.onTouchListener = OnTouchListener { v, event -> listener(v, event) }
+    }
+
+    /**
+     * Pass the touch screen motion event down to the target view, or this view if it is the target.
+     *
+     * @param event The motion event to be dispatched.
+     * @return True if the event was handled by the view, false otherwise.
+     */
+    open fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // First, give the touch listener a chance to consume the event
+        if (onTouchListener?.onTouch(this, event) == true) {
+            return true
+        }
+
+        // Otherwise, let onTouchEvent handle it
+        return onTouchEvent(event)
+    }
+
+    /**
+     * Implement this method to handle touch screen motion events.
+     *
+     * @param event The motion event.
+     * @return True if the event was handled, false otherwise.
+     */
+    open fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!isEnabled) {
+            return false
+        }
+
+        if (!isClickable && !isFocusable) {
+            return false
+        }
+
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                isPressed = true
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (isPressed) {
+                    isPressed = false
+                    if (isClickable) {
+                        performClick()
+                    }
+                    return true
+                }
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                isPressed = false
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                // Check if the touch moved outside the view bounds
+                if (!pointInView(event.x, event.y)) {
+                    isPressed = false
+                }
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /**
+     * Determines whether the given point, in local coordinates, is inside the view.
+     */
+    fun pointInView(localX: Float, localY: Float, slop: Float = 0f): Boolean {
+        return localX >= -slop && localY >= -slop &&
+                localX < (width + slop) && localY < (height + slop)
+    }
+
+    /**
+     * Returns whether the view is currently pressed.
+     */
+    fun isPressed(): Boolean = isPressed
+
+    /**
+     * Sets the pressed state for this view.
+     */
+    fun setPressed(pressed: Boolean) {
+        isPressed = pressed
+    }
+
     fun interface OnClickListener {
         fun onClick(v: View)
+    }
+
+    fun interface OnTouchListener {
+        fun onTouch(v: View, event: MotionEvent): Boolean
     }
 
     /**
