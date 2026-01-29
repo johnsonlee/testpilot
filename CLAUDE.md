@@ -133,6 +133,25 @@ interface ResourceRepository {
 class LayoutRenderer(private val resourceRepository: ResourceRepository)
 ```
 
+### Resource Configuration & Resolution
+
+- `resources.arsc` contains multiple `RES_TABLE_TYPE_TYPE` chunks per type ID — one per configuration (e.g., `string` type appears once for default, once for `values-es`, once for `values-fr`, etc.)
+- Each type chunk carries a `ResTable_config` binary struct (minimum 28 bytes) encoding locale, density, orientation, night mode, screen layout, SDK version, etc.
+- Language/country are stored as 2-byte char arrays, not null-terminated strings — must trim `\u0000` after conversion
+- `configSize` field at the start of the struct indicates how many bytes to read; later fields (screenLayout, uiMode, smallestScreenWidthDp, screenWidthDp/HeightDp) only exist if configSize is large enough (≥32, ≥36, ≥40)
+- Night mode is encoded in `uiMode` bits: `(uiMode shr 4) and 0x3` — value 1 = not night, 2 = night
+- Android's best-match algorithm is an elimination process with qualifier priority: locale → nightMode → density → orientation → screenSize → sdkVersion
+- Density matching penalizes scaling up (lower density is worse than higher density for the same distance from target)
+- Screen layout size matching: config size must not exceed device size (contradiction), and larger matching sizes are preferred
+
+### Simulator-Loader Module Boundary
+
+- The simulator module must remain dependency-free (no loader imports) — use interfaces to bridge
+- `ResourceResolver` interface lives in simulator; implementation (`ResourceTableResolver`) lives in loader
+- `Resources.resolver` is set via property injection in `TestPilot.launch()` after construction
+- `Configuration` data class lives in simulator (needed by `Resources`) and is mapped from `android/content/res/Configuration` via bytecode rewriting
+- When adding new Android class shims, always add the corresponding bytecode mapping in `BytecodeRewriter.classMapping`
+
 ### Golden Image Testing
 
 - Use record mode (`-Dtestpilot.record=true`) to capture baseline images
