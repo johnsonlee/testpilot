@@ -1,7 +1,5 @@
 plugins {
-    id("org.jetbrains.kotlin.jvm")
     application
-    `maven-publish`
 }
 
 application {
@@ -16,26 +14,18 @@ dependencies {
     implementation(project(":renderer"))
 
     // Android tools for DEX processing
-    implementation("com.android.tools.smali:smali-dexlib2:3.0.3")
+    implementation(libs.dexlib2)
 
     // ASM for bytecode manipulation
-    implementation("org.ow2.asm:asm:9.6")
-    implementation("org.ow2.asm:asm-commons:9.6")
-    implementation("org.ow2.asm:asm-util:9.6")
+    implementation(libs.asm)
+    implementation(libs.asm.commons)
+    implementation(libs.asm.util)
 
     // Testing
     testImplementation(kotlin("test"))
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.1")
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.1")
-    testImplementation("org.assertj:assertj-core:3.24.2")
-}
-
-tasks.test {
-    useJUnitPlatform()
-}
-
-kotlin {
-    jvmToolchain(21)
+    testImplementation(libs.junit.jupiter.api)
+    testRuntimeOnly(libs.junit.jupiter.engine)
+    testImplementation(libs.assertj.core)
 }
 
 publishing {
@@ -52,16 +42,6 @@ publishing {
                         url.set("https://www.apache.org/licenses/LICENSE-2.0")
                     }
                 }
-            }
-        }
-    }
-    repositories {
-        maven {
-            name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/johnsonlee/testpilot")
-            credentials {
-                username = System.getenv("GITHUB_ACTOR")
-                password = System.getenv("GITHUB_TOKEN")
             }
         }
     }

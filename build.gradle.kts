@@ -1,13 +1,7 @@
 import java.net.URL
 
-buildscript {
-    repositories {
-        mavenCentral()
-        gradlePluginPortal()
-    }
-    dependencies {
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22")
-    }
+plugins {
+    alias(libs.plugins.kotlin.jvm) apply false
 }
 
 tasks.register("downloadTestFixtures") {
@@ -44,5 +38,34 @@ allprojects {
         mavenCentral()
         maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
         google()
+    }
+}
+
+subprojects {
+    apply(plugin = "org.jetbrains.kotlin.jvm")
+
+    configure<org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension> {
+        jvmToolchain(21)
+    }
+
+    tasks.withType<Test> {
+        useJUnitPlatform()
+    }
+
+    if (name != "demo") {
+        apply(plugin = "maven-publish")
+
+        configure<PublishingExtension> {
+            repositories {
+                maven {
+                    name = "GitHubPackages"
+                    url = uri("https://maven.pkg.github.com/johnsonlee/testpilot")
+                    credentials {
+                        username = System.getenv("GITHUB_ACTOR")
+                        password = System.getenv("GITHUB_TOKEN")
+                    }
+                }
+            }
+        }
     }
 }

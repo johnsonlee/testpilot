@@ -10,11 +10,6 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import java.util.zip.ZipInputStream
 
-plugins {
-    id("org.jetbrains.kotlin.jvm")
-    `maven-publish`
-}
-
 // Layoutlib native runtime classifier based on OS
 val nativeClassifier: String = run {
     val os = System.getProperty("os.name").lowercase()
@@ -54,13 +49,6 @@ abstract class UnzipTransform : TransformAction<TransformParameters.None> {
 
 val DIRECTORY_TYPE = Attribute.of("artifactType", String::class.java)
 
-dependencies {
-    registerTransform(UnzipTransform::class) {
-        from.attribute(ARTIFACT_TYPE_ATTRIBUTE, "jar")
-        to.attribute(ARTIFACT_TYPE_ATTRIBUTE, "directory")
-    }
-}
-
 // Layoutlib runtime configuration (native libs)
 val layoutlibRuntime: Configuration by configurations.creating {
     isTransitive = false
@@ -77,11 +65,6 @@ val layoutlibResources: Configuration by configurations.creating {
     }
 }
 
-dependencies {
-    layoutlibRuntime(variantOf(libs.android.tools.layoutlib.runtime) { classifier(nativeClassifier) })
-    layoutlibResources(libs.android.tools.layoutlib.resources)
-}
-
 // Helper to get directory from configuration
 fun Configuration.asDirectory(): File {
     return incoming.artifactView {
@@ -90,6 +73,14 @@ fun Configuration.asDirectory(): File {
 }
 
 dependencies {
+    registerTransform(UnzipTransform::class) {
+        from.attribute(ARTIFACT_TYPE_ATTRIBUTE, "jar")
+        to.attribute(ARTIFACT_TYPE_ATTRIBUTE, "directory")
+    }
+
+    layoutlibRuntime(variantOf(libs.android.tools.layoutlib.runtime) { classifier(nativeClassifier) })
+    layoutlibResources(libs.android.tools.layoutlib.resources)
+
     // Kotlin
     api(kotlin("stdlib"))
     api(kotlin("reflect"))
@@ -129,8 +120,6 @@ dependencies {
 }
 
 tasks.test {
-    useJUnitPlatform()
-
     // Pass layoutlib paths to tests
     doFirst {
         systemProperty("testpilot.layoutlib.runtime", layoutlibRuntime.asDirectory().absolutePath)
@@ -139,15 +128,6 @@ tasks.test {
 
     // Pass through testpilot.record system property for golden image recording
     systemProperty("testpilot.record", System.getProperty("testpilot.record") ?: "false")
-}
-
-java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
-}
-
-kotlin {
-    jvmToolchain(21)
 }
 
 publishing {

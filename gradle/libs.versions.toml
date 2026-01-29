@@ -1,10 +1,11 @@
 [versions]
 kotlin = "1.9.22"
 asm = "9.6"
-dexlib2 = "2.5.2"
+dexlib2 = "3.0.3"
 assertj = "3.24.2"
 junit-jupiter = "5.10.1"
 coroutines = "1.7.3"
+skiko = "0.7.93"
 
 # Android Tools / Layoutlib (versions must match Paparazzi's tested combinations)
 android-tools = "31.13.2"
@@ -25,11 +26,16 @@ slf4j = "1.7.36"
 kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
 kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
 
 # Bytecode
 asm = { module = "org.ow2.asm:asm", version.ref = "asm" }
+asm-commons = { module = "org.ow2.asm:asm-commons", version.ref = "asm" }
 asm-util = { module = "org.ow2.asm:asm-util", version.ref = "asm" }
 dexlib2 = { module = "com.android.tools.smali:smali-dexlib2", version.ref = "dexlib2" }
+
+# Skiko
+skiko-awt-runtime-linux-x64 = { module = "org.jetbrains.skiko:skiko-awt-runtime-linux-x64", version.ref = "skiko" }
 
 # Android Tools / Layoutlib
 android-tools-common = { module = "com.android.tools:common", version.ref = "android-tools" }
@@ -64,3 +70,6 @@ okio = { module = "com.squareup.okio:okio-jvm", version.ref = "okio" }
 assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
 junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit-jupiter" }
 junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit-jupiter" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
