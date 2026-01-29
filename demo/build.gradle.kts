@@ -1,5 +1,4 @@
 plugins {
-    kotlin("jvm")
     application
 }
 
@@ -9,8 +8,4 @@ dependencies {
 
 application {
     mainClass.set("io.testpilot.demo.MainKt")
-}
-
-kotlin {
-    jvmToolchain(21)
 }
