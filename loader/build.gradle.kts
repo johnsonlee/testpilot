@@ -19,10 +19,8 @@ dependencies {
     // ASM for bytecode manipulation
     implementation(libs.asm)
     implementation(libs.asm.commons)
-    implementation(libs.asm.util)
 
     // Testing
-    testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter.api)
     testRuntimeOnly(libs.junit.jupiter.engine)
     testImplementation(libs.assertj.core)

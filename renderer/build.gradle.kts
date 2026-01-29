@@ -83,38 +83,22 @@ dependencies {
 
     // Kotlin
     api(kotlin("stdlib"))
-    api(kotlin("reflect"))
 
     // Android Tools / Layoutlib
     api(libs.android.tools.layoutlib)
     api(libs.android.tools.layoutlib.api)
     api(libs.android.tools.sdk.common)
     api(libs.android.tools.common)
-    api(libs.android.tools.build.aapt2.proto)
     api(libs.android.tools.external.intellij.core)
-
-    // AndroidX
-    api(libs.androidx.lifecycle.common.java8)
 
     // XML parsing
     api(libs.kxml2)
-
-    // JSON
-    api(libs.jackson.databind)
-
-    // Protobuf
-    api(libs.protobuf)
 
     // Logging
     implementation(libs.slf4j.api)
     runtimeOnly(libs.slf4j.simple)
 
-    // IO
-    implementation(libs.okio)
-
     // Testing
-    testImplementation(kotlin("test"))
-    testImplementation(libs.assertj.core)
     testImplementation(libs.junit.jupiter.api)
     testRuntimeOnly(libs.junit.jupiter.engine)
 }

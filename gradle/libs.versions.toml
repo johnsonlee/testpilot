@@ -4,38 +4,21 @@ asm = "9.6"
 dexlib2 = "3.0.3"
 assertj = "3.24.2"
 junit-jupiter = "5.10.1"
-coroutines = "1.7.3"
-skiko = "0.7.93"
 
 # Android Tools / Layoutlib (versions must match Paparazzi's tested combinations)
 android-tools = "31.13.2"
 layoutlib = "16.1.1"
 layoutlib-api = "31.13.2"
-aapt2 = "8.13.2-14304508"
 
 # Other
-androidx-lifecycle = "2.6.2"
-jackson = "2.13.4"
 kxml2 = "2.3.0"
-okio = "3.4.0"
-protobuf = "3.19.3"
 slf4j = "1.7.36"
 
 [libraries]
-# Kotlin
-kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
-kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
-kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
-kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
-
 # Bytecode
 asm = { module = "org.ow2.asm:asm", version.ref = "asm" }
 asm-commons = { module = "org.ow2.asm:asm-commons", version.ref = "asm" }
-asm-util = { module = "org.ow2.asm:asm-util", version.ref = "asm" }
 dexlib2 = { module = "com.android.tools.smali:smali-dexlib2", version.ref = "dexlib2" }
-
-# Skiko
-skiko-awt-runtime-linux-x64 = { module = "org.jetbrains.skiko:skiko-awt-runtime-linux-x64", version.ref = "skiko" }
 
 # Android Tools / Layoutlib
 android-tools-common = { module = "com.android.tools:common", version.ref = "android-tools" }
@@ -44,27 +27,14 @@ android-tools-layoutlib = { module = "com.android.tools.layoutlib:layoutlib", ve
 android-tools-layoutlib-api = { module = "com.android.tools.layoutlib:layoutlib-api", version.ref = "layoutlib-api" }
 android-tools-layoutlib-resources = { module = "com.android.tools.layoutlib:layoutlib-resources", version.ref = "layoutlib" }
 android-tools-layoutlib-runtime = { module = "com.android.tools.layoutlib:layoutlib-runtime", version.ref = "layoutlib" }
-android-tools-build-aapt2-proto = { module = "com.android.tools.build:aapt2-proto", version.ref = "aapt2" }
 android-tools-external-intellij-core = { module = "com.android.tools.external.com-intellij:intellij-core", version.ref = "android-tools" }
-
-# AndroidX
-androidx-lifecycle-common-java8 = { module = "androidx.lifecycle:lifecycle-common-java8", version.ref = "androidx-lifecycle" }
 
 # XML
 kxml2 = { module = "net.sf.kxml:kxml2", version.ref = "kxml2" }
 
-# JSON
-jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
-
-# Protobuf
-protobuf = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
-
 # Logging
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
-
-# IO
-okio = { module = "com.squareup.okio:okio-jvm", version.ref = "okio" }
 
 # Testing
 assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }

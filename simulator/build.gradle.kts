@@ -1,13 +1,7 @@
 dependencies {
-    // Skiko for rendering
-    implementation(libs.skiko.awt.runtime.linux.x64)
-
-    // Coroutines for async operations
-    implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.kotlinx.coroutines.swing)
-
     // Testing
-    testImplementation(kotlin("test"))
+    testImplementation(libs.junit.jupiter.api)
+    testRuntimeOnly(libs.junit.jupiter.engine)
     testImplementation(libs.assertj.core)
 }
 
