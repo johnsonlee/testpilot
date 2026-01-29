@@ -173,7 +173,7 @@ fun main(args: Array<String>) {
 
             if (launcher != null) {
                 println("    Launching activity...")
-                val session = app.launchDefault()
+                val session = app.launch()
                 println("    Activity: ${session.getActivity()::class.simpleName}")
                 println("    Window: ${session.getWindow().width}x${session.getWindow().height}")
 
