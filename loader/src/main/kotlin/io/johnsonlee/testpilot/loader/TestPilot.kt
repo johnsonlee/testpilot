@@ -1,5 +1,9 @@
 package io.johnsonlee.testpilot.loader
 
+import io.johnsonlee.testpilot.renderer.DeviceConfig
+import io.johnsonlee.testpilot.renderer.LayoutRenderer
+import io.johnsonlee.testpilot.renderer.RenderEnvironment
+import io.johnsonlee.testpilot.renderer.RenderResult
 import io.johnsonlee.testpilot.simulator.activity.Activity
 import io.johnsonlee.testpilot.simulator.activity.ActivityController
 import io.johnsonlee.testpilot.simulator.resources.Resources
@@ -7,6 +11,7 @@ import io.johnsonlee.testpilot.simulator.view.MotionEvent
 import io.johnsonlee.testpilot.simulator.view.View
 import io.johnsonlee.testpilot.simulator.view.ViewGroup
 import io.johnsonlee.testpilot.simulator.window.Window
+import java.awt.image.BufferedImage
 import java.io.File
 
 /**
@@ -374,6 +379,46 @@ class TestPilot private constructor(
                 }
             }
             return null
+        }
+
+        // ==================== Screenshot Methods ====================
+
+        /**
+         * Takes a screenshot by rendering the provided layout XML using layoutlib.
+         *
+         * @param layoutXml The layout XML string to render.
+         * @param deviceConfig The device configuration (screen size, density, etc.).
+         * @param theme The theme to use for rendering.
+         * @return The rendered image.
+         */
+        fun takeScreenshot(
+            layoutXml: String,
+            deviceConfig: DeviceConfig = DeviceConfig.DEFAULT,
+            theme: String = "Theme.Material.Light.NoActionBar"
+        ): BufferedImage {
+            val environment = RenderEnvironment()
+            return LayoutRenderer(environment, deviceConfig).use { renderer ->
+                renderer.render(layoutXml, theme).image
+            }
+        }
+
+        /**
+         * Takes a screenshot by rendering the provided layout XML using layoutlib.
+         *
+         * @param layoutXml The layout XML string to render.
+         * @param deviceConfig The device configuration (screen size, density, etc.).
+         * @param theme The theme to use for rendering.
+         * @return The full render result including view hierarchy information.
+         */
+        fun renderLayout(
+            layoutXml: String,
+            deviceConfig: DeviceConfig = DeviceConfig.DEFAULT,
+            theme: String = "Theme.Material.Light.NoActionBar"
+        ): RenderResult {
+            val environment = RenderEnvironment()
+            return LayoutRenderer(environment, deviceConfig).use { renderer ->
+                renderer.render(layoutXml, theme)
+            }
         }
     }
 

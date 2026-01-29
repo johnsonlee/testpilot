@@ -1,5 +1,10 @@
 rootProject.name = "testpilot"
 
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "0.8.0"
+}
+
 include(":simulator")
 include(":loader")
+include(":renderer")
 include(":demo")
