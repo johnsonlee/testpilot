@@ -43,7 +43,7 @@ class TestPilotTest {
     fun `should launch activity and create session`() {
         val app = TestPilot.load(apkFile)
 
-        val session = app.launchDefault()
+        val session = app.launch()
 
         assertThat(session.getWindow().width).isEqualTo(480)
         assertThat(session.getWindow().height).isEqualTo(800)
@@ -53,7 +53,7 @@ class TestPilotTest {
     @EnabledIf("apkExists")
     fun `should support activity lifecycle`() {
         val app = TestPilot.load(apkFile)
-        val session = app.launchDefault()
+        val session = app.launch()
 
         // Test lifecycle transitions
         session.pause()

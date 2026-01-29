@@ -12,16 +12,15 @@ import java.io.File
  * Usage:
  * ```kotlin
  * val app = TestPilot.load("app.apk")
- * app.launch("com.example.MainActivity")
- * // or auto-discover launcher activity:
- * app.launchDefault()
+ * app.launch()  // launches the default launcher activity
+ * app.launch("com.example.MainActivity")  // launches a specific activity
  * ```
  */
 class TestPilot private constructor(
     private val apkFile: File,
     private val outputDir: File
 ) {
-    private var classLoader: ApkClassLoader? = null
+    private val classLoader: ApkClassLoader
     private var currentController: ActivityController<out Activity>? = null
 
     // Parsed APK data
@@ -36,10 +35,7 @@ class TestPilot private constructor(
         val isMain: Boolean
     )
 
-    /**
-     * Loads and transforms the APK.
-     */
-    fun prepare(): TestPilot {
+    init {
         println("[TestPilot] Loading APK: ${apkFile.name}")
 
         // Step 1: Extract APK
@@ -85,8 +81,6 @@ class TestPilot private constructor(
         println("[TestPilot] Step 6: Creating ClassLoader...")
         classLoader = ApkClassLoader(rewrittenClasses, javaClass.classLoader)
         println("[TestPilot] APK loaded successfully!")
-
-        return this
     }
 
     private fun parseManifest() {
@@ -186,25 +180,20 @@ class TestPilot private constructor(
     }
 
     /**
-     * Launches the default (launcher) activity.
+     * Launches an Activity.
+     *
+     * @param activityClassName The fully qualified class name of the activity to launch.
+     *                          If null, launches the default launcher activity.
      */
-    fun launchDefault(): ActivitySession {
-        val launcher = getLauncherActivity()
+    fun launch(activityClassName: String? = null): ActivitySession {
+        val targetActivity = activityClassName ?: getLauncherActivity()?.name
             ?: throw IllegalStateException("No launcher activity found in manifest")
-        return launch(launcher.name)
-    }
 
-    /**
-     * Launches an Activity by class name.
-     */
-    fun launch(activityClassName: String): ActivitySession {
-        val loader = classLoader ?: throw IllegalStateException("APK not prepared. Call prepare() first.")
-
-        println("[TestPilot] Launching: $activityClassName")
+        println("[TestPilot] Launching: $targetActivity")
 
         // Try to load the activity class
         val activityClass = try {
-            loader.loadClass(activityClassName)
+            classLoader.loadClass(targetActivity)
         } catch (e: ClassNotFoundException) {
             println("[TestPilot] Warning: Activity class not found, using stub")
             null
@@ -229,11 +218,11 @@ class TestPilot private constructor(
             } catch (e: Throwable) {
                 // Catch all errors including VerifyError during class initialization
                 println("[TestPilot] Warning: Failed to instantiate activity: ${e.javaClass.simpleName}: ${e.message?.take(100)}")
-                createStubActivity(activityClassName)
+                createStubActivity(targetActivity)
             }
         } else {
             println("[TestPilot] Note: Using stub activity (class not compatible)")
-            createStubActivity(activityClassName)
+            createStubActivity(targetActivity)
         }
 
         val controller = ActivityController.of(activity, window, resources)
@@ -263,7 +252,6 @@ class TestPilot private constructor(
      * Gets the custom ClassLoader for this APK.
      */
     fun getClassLoader(): ClassLoader = classLoader
-        ?: throw IllegalStateException("APK not prepared. Call prepare() first.")
 
     /**
      * Represents a running Activity session.
@@ -323,7 +311,7 @@ class TestPilot private constructor(
             val outputDir = File(System.getProperty("java.io.tmpdir"), "testpilot-${System.currentTimeMillis()}")
             outputDir.mkdirs()
 
-            return TestPilot(apkFile, outputDir).prepare()
+            return TestPilot(apkFile, outputDir)
         }
     }
 }
