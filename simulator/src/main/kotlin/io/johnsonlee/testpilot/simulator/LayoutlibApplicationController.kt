@@ -45,8 +45,10 @@ class LayoutlibApplicationController(
     fun onCreate(): LayoutlibApplicationController {
         try {
             application.onCreate()
-        } catch (e: Exception) {
-            logger.log(Level.WARNING, "Application.onCreate() failed", e)
+        } catch (e: Throwable) {
+            // Catch Throwable (not just Exception) because Application.onCreate() runs
+            // APK code that may throw VerifyError from imperfectly-translated DEX bytecode.
+            logger.log(Level.WARNING, "Application.onCreate() failed: ${e.javaClass.simpleName}: ${e.message}")
         }
         return this
     }

@@ -51,9 +51,22 @@ class DexConverter(
     }
 
     private fun convertClass(classDef: ClassDef): ByteArray {
-        // Use COMPUTE_MAXS only to avoid frame calculation errors
-        // COMPUTE_FRAMES can fail when the bytecode structure is complex
-        val cw = ClassWriter(ClassWriter.COMPUTE_MAXS)
+        // Try COMPUTE_FRAMES first — generates StackMapTable required by JVM verifier (Java 7+).
+        // If frame computation fails (complex/imperfect translated bytecode), fall back to
+        // COMPUTE_MAXS with Java 6 class format where StackMapTable is not required.
+        return try {
+            buildClass(classDef, ClassWriter.COMPUTE_FRAMES, AsmOpcodes.V17)
+        } catch (e: Exception) {
+            buildClass(classDef, ClassWriter.COMPUTE_MAXS, AsmOpcodes.V1_6)
+        }
+    }
+
+    private fun buildClass(classDef: ClassDef, writerFlags: Int, classVersion: Int): ByteArray {
+        val cw = object : ClassWriter(writerFlags) {
+            override fun getCommonSuperClass(type1: String, type2: String): String {
+                return "java/lang/Object"
+            }
+        }
 
         val className = dexTypeToJvmType(classDef.type)
         val superName = classDef.superclass?.let { dexTypeToJvmType(it) } ?: "java/lang/Object"
@@ -62,7 +75,7 @@ class DexConverter(
         val access = convertAccessFlags(classDef.accessFlags)
 
         cw.visit(
-            AsmOpcodes.V17,
+            classVersion,
             access,
             className,
             null,  // signature
@@ -110,12 +123,13 @@ class DexConverter(
         mv.visitCode()
 
         val implementation = method.implementation
-        if (implementation != null && translateInstructions) {
+        if (implementation != null && translateInstructions
+            && DexInstructionTranslator.canTranslate(implementation.instructions)) {
             // Translate actual DEX instructions
             try {
                 val isStatic = (methodAccess and AsmOpcodes.ACC_STATIC) != 0
                 val paramTypes = method.parameterTypes.map { it.toString() }
-                val translator = DexInstructionTranslator(mv, isStatic, paramTypes, returnType)
+                val translator = DexInstructionTranslator(mv, isStatic, paramTypes, returnType, implementation.registerCount)
                 translator.translate(implementation.instructions)
             } catch (e: Exception) {
                 // Fall back to stub if translation fails
@@ -193,7 +207,7 @@ class DexConverter(
             dexType.startsWith("L") && dexType.endsWith(";") ->
                 dexType.substring(1, dexType.length - 1)
             dexType.startsWith("[") ->
-                "[" + dexTypeToJvmType(dexType.substring(1))
+                dexType  // Array descriptors are identical in DEX and JVM
             else -> dexType
         }
     }

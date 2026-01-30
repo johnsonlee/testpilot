@@ -20,13 +20,51 @@ class DexInstructionTranslator(
     private val mv: MethodVisitor,
     private val isStatic: Boolean,
     private val parameterTypes: List<String>,
-    private val returnType: String
+    private val returnType: String,
+    private val registerCount: Int
 ) {
+    private enum class RegType { INT, LONG, FLOAT, DOUBLE, OBJECT, UNKNOWN }
+
     // Maps instruction offset to Label for jump targets
     private val labels = mutableMapOf<Int, Label>()
 
-    // Register offset: instance methods have 'this' in register p0
-    private val registerOffset = if (isStatic) 0 else 1
+    /**
+     * Tracks the last-known type of each Dalvik register so that type-polymorphic
+     * instructions (if-eqz, if-eq, etc.) can emit the correct JVM opcode.
+     */
+    private val registerTypes = Array(registerCount) { RegType.UNKNOWN }
+
+    /**
+     * Number of Dalvik registers occupied by parameters (including `this` for instance methods).
+     * Wide types (long, double) occupy 2 consecutive registers.
+     */
+    private val paramRegCount: Int = (if (isStatic) 0 else 1) +
+        parameterTypes.fold(0) { acc, type -> acc + if (type == "J" || type == "D") 2 else 1 }
+
+    /**
+     * Number of Dalvik local (temporary) registers — those before the parameter registers.
+     *
+     * Dalvik register layout: [v0..v(localRegCount-1)] [p0..p(paramRegCount-1)]
+     *     localRegCount = registerCount - paramRegCount
+     */
+    private val localRegCount: Int = registerCount - paramRegCount
+
+    init {
+        // Initialize parameter register types from method signature
+        var reg = localRegCount
+        if (!isStatic) {
+            registerTypes[reg++] = RegType.OBJECT  // this
+        }
+        for (type in parameterTypes) {
+            when (type) {
+                "J" -> { registerTypes[reg] = RegType.LONG; reg += 2 }
+                "D" -> { registerTypes[reg] = RegType.DOUBLE; reg += 2 }
+                "F" -> { registerTypes[reg++] = RegType.FLOAT }
+                "I", "Z", "B", "C", "S" -> { registerTypes[reg++] = RegType.INT }
+                else -> { registerTypes[reg++] = RegType.OBJECT }
+            }
+        }
+    }
 
     /**
      * Translates a sequence of DEX instructions.
@@ -35,12 +73,66 @@ class DexInstructionTranslator(
         // First pass: collect all jump targets and create labels
         collectLabels(instructions)
 
+        // Emit parameter copies: JVM puts params at fixed slots 0..paramRegCount-1,
+        // but our type-split mapping uses different slots. Copy params to mapped slots.
+        emitParameterCopies()
+
         // Second pass: translate instructions
+        var offset = 0
         for (instruction in instructions) {
             // Emit label if this is a jump target
-            labels[instruction.codeUnits]?.let { mv.visitLabel(it) }
+            labels[offset]?.let { mv.visitLabel(it) }
 
+            currentOffset = offset
             translateInstruction(instruction)
+            offset += instruction.codeUnits
+        }
+    }
+
+    /** Position (in code units) of the instruction currently being translated. */
+    private var currentOffset = 0
+
+    /**
+     * Copies parameters from their fixed JVM slots (0..paramRegCount-1) to
+     * the type-split mapped slots used by all subsequent register accesses.
+     */
+    private fun emitParameterCopies() {
+        var jvmSlot = 0
+        var dalvikReg = localRegCount
+        if (!isStatic) {
+            mv.visitVarInsn(AsmOpcodes.ALOAD, jvmSlot)
+            mv.visitVarInsn(AsmOpcodes.ASTORE, mapReg(dalvikReg, TYPE_OBJECT))
+            jvmSlot++
+            dalvikReg++
+        }
+        for (type in parameterTypes) {
+            when (type) {
+                "J" -> {
+                    mv.visitVarInsn(AsmOpcodes.LLOAD, jvmSlot)
+                    mv.visitVarInsn(AsmOpcodes.LSTORE, mapReg(dalvikReg, TYPE_LONG))
+                    jvmSlot += 2; dalvikReg += 2
+                }
+                "D" -> {
+                    mv.visitVarInsn(AsmOpcodes.DLOAD, jvmSlot)
+                    mv.visitVarInsn(AsmOpcodes.DSTORE, mapReg(dalvikReg, TYPE_DOUBLE))
+                    jvmSlot += 2; dalvikReg += 2
+                }
+                "F" -> {
+                    mv.visitVarInsn(AsmOpcodes.FLOAD, jvmSlot)
+                    mv.visitVarInsn(AsmOpcodes.FSTORE, mapReg(dalvikReg, TYPE_FLOAT))
+                    jvmSlot++; dalvikReg++
+                }
+                "I", "Z", "B", "C", "S" -> {
+                    mv.visitVarInsn(AsmOpcodes.ILOAD, jvmSlot)
+                    mv.visitVarInsn(AsmOpcodes.ISTORE, mapReg(dalvikReg, TYPE_INT))
+                    jvmSlot++; dalvikReg++
+                }
+                else -> {
+                    mv.visitVarInsn(AsmOpcodes.ALOAD, jvmSlot)
+                    mv.visitVarInsn(AsmOpcodes.ASTORE, mapReg(dalvikReg, TYPE_OBJECT))
+                    jvmSlot++; dalvikReg++
+                }
+            }
         }
     }
 
@@ -159,15 +251,8 @@ class DexInstructionTranslator(
             Opcode.ARRAY_LENGTH -> translateArrayLength(instruction)
 
             else -> {
-                // Unsupported instruction - emit a comment and throw
-                mv.visitLdcInsn("Unsupported DEX opcode: ${instruction.opcode}")
-                mv.visitMethodInsn(
-                    AsmOpcodes.INVOKESTATIC,
-                    "io/johnsonlee/testpilot/loader/UnsupportedOpcodeException",
-                    "throwFor",
-                    "(Ljava/lang/String;)V",
-                    false
-                )
+                // Skip unsupported opcodes — registers they would have written
+                // remain uninitialized, but this avoids corrupting the JVM stack.
             }
         }
     }
@@ -410,51 +495,70 @@ class DexInstructionTranslator(
 
     private fun translateIfCmp(instruction: Instruction) {
         val opcode = instruction.opcode
-        val codeUnits = instruction.codeUnits
         val two = instruction as TwoRegisterInstruction
         val offsetInstr = instruction as OffsetInstruction
+        val target = labels[currentOffset + offsetInstr.codeOffset] ?: Label()
 
-        loadInt(two.registerA)
-        loadInt(two.registerB)
+        val eitherObject = regType(two.registerA) == RegType.OBJECT
+            || regType(two.registerB) == RegType.OBJECT
 
-        val target = labels[codeUnits + offsetInstr.codeOffset] ?: Label()
-        val jvmOpcode = when (opcode) {
-            Opcode.IF_EQ -> AsmOpcodes.IF_ICMPEQ
-            Opcode.IF_NE -> AsmOpcodes.IF_ICMPNE
-            Opcode.IF_LT -> AsmOpcodes.IF_ICMPLT
-            Opcode.IF_GE -> AsmOpcodes.IF_ICMPGE
-            Opcode.IF_GT -> AsmOpcodes.IF_ICMPGT
-            Opcode.IF_LE -> AsmOpcodes.IF_ICMPLE
-            else -> throw IllegalStateException("Unknown if opcode: $opcode")
+        // DEX if-eq/if-ne can compare objects (reference equality).
+        // JVM requires IF_ACMPEQ/IF_ACMPNE for references, IF_ICMPEQ/IF_ICMPNE for ints.
+        // LT/GE/GT/LE are always integer comparisons.
+        if (eitherObject && (opcode == Opcode.IF_EQ || opcode == Opcode.IF_NE)) {
+            loadObject(two.registerA)
+            loadObject(two.registerB)
+            val jvmOpcode = if (opcode == Opcode.IF_EQ) AsmOpcodes.IF_ACMPEQ else AsmOpcodes.IF_ACMPNE
+            mv.visitJumpInsn(jvmOpcode, target)
+        } else {
+            loadInt(two.registerA)
+            loadInt(two.registerB)
+            val jvmOpcode = when (opcode) {
+                Opcode.IF_EQ -> AsmOpcodes.IF_ICMPEQ
+                Opcode.IF_NE -> AsmOpcodes.IF_ICMPNE
+                Opcode.IF_LT -> AsmOpcodes.IF_ICMPLT
+                Opcode.IF_GE -> AsmOpcodes.IF_ICMPGE
+                Opcode.IF_GT -> AsmOpcodes.IF_ICMPGT
+                Opcode.IF_LE -> AsmOpcodes.IF_ICMPLE
+                else -> throw IllegalStateException("Unknown if opcode: $opcode")
+            }
+            mv.visitJumpInsn(jvmOpcode, target)
         }
-        mv.visitJumpInsn(jvmOpcode, target)
     }
 
     private fun translateIfZ(instruction: Instruction) {
         val opcode = instruction.opcode
-        val codeUnits = instruction.codeUnits
         val one = instruction as OneRegisterInstruction
         val offsetInstr = instruction as OffsetInstruction
+        val target = labels[currentOffset + offsetInstr.codeOffset] ?: Label()
 
-        loadInt(one.registerA)
+        val isObject = regType(one.registerA) == RegType.OBJECT
 
-        val target = labels[codeUnits + offsetInstr.codeOffset] ?: Label()
-        val jvmOpcode = when (opcode) {
-            Opcode.IF_EQZ -> AsmOpcodes.IFEQ
-            Opcode.IF_NEZ -> AsmOpcodes.IFNE
-            Opcode.IF_LTZ -> AsmOpcodes.IFLT
-            Opcode.IF_GEZ -> AsmOpcodes.IFGE
-            Opcode.IF_GTZ -> AsmOpcodes.IFGT
-            Opcode.IF_LEZ -> AsmOpcodes.IFLE
-            else -> throw IllegalStateException("Unknown ifz opcode: $opcode")
+        // DEX if-eqz/if-nez work on both ints (== 0) and objects (== null).
+        // JVM requires IFNULL/IFNONNULL for references, IFEQ/IFNE for ints.
+        // LTZ/GEZ/GTZ/LEZ are always integer comparisons.
+        if (isObject && (opcode == Opcode.IF_EQZ || opcode == Opcode.IF_NEZ)) {
+            loadObject(one.registerA)
+            val jvmOpcode = if (opcode == Opcode.IF_EQZ) AsmOpcodes.IFNULL else AsmOpcodes.IFNONNULL
+            mv.visitJumpInsn(jvmOpcode, target)
+        } else {
+            loadInt(one.registerA)
+            val jvmOpcode = when (opcode) {
+                Opcode.IF_EQZ -> AsmOpcodes.IFEQ
+                Opcode.IF_NEZ -> AsmOpcodes.IFNE
+                Opcode.IF_LTZ -> AsmOpcodes.IFLT
+                Opcode.IF_GEZ -> AsmOpcodes.IFGE
+                Opcode.IF_GTZ -> AsmOpcodes.IFGT
+                Opcode.IF_LEZ -> AsmOpcodes.IFLE
+                else -> throw IllegalStateException("Unknown ifz opcode: $opcode")
+            }
+            mv.visitJumpInsn(jvmOpcode, target)
         }
-        mv.visitJumpInsn(jvmOpcode, target)
     }
 
     private fun translateGoto(instruction: Instruction) {
-        val codeUnits = instruction.codeUnits
         val offsetInstr = instruction as OffsetInstruction
-        val target = labels[codeUnits + offsetInstr.codeOffset] ?: Label()
+        val target = labels[currentOffset + offsetInstr.codeOffset] ?: Label()
         mv.visitJumpInsn(AsmOpcodes.GOTO, target)
     }
 
@@ -570,16 +674,38 @@ class DexInstructionTranslator(
 
     // ========== Helper methods ==========
 
-    private fun loadInt(reg: Int) = mv.visitVarInsn(AsmOpcodes.ILOAD, reg + registerOffset)
-    private fun storeInt(reg: Int) = mv.visitVarInsn(AsmOpcodes.ISTORE, reg + registerOffset)
-    private fun loadLong(reg: Int) = mv.visitVarInsn(AsmOpcodes.LLOAD, reg + registerOffset)
-    private fun storeLong(reg: Int) = mv.visitVarInsn(AsmOpcodes.LSTORE, reg + registerOffset)
-    private fun loadFloat(reg: Int) = mv.visitVarInsn(AsmOpcodes.FLOAD, reg + registerOffset)
-    private fun storeFloat(reg: Int) = mv.visitVarInsn(AsmOpcodes.FSTORE, reg + registerOffset)
-    private fun loadDouble(reg: Int) = mv.visitVarInsn(AsmOpcodes.DLOAD, reg + registerOffset)
-    private fun storeDouble(reg: Int) = mv.visitVarInsn(AsmOpcodes.DSTORE, reg + registerOffset)
-    private fun loadObject(reg: Int) = mv.visitVarInsn(AsmOpcodes.ALOAD, reg + registerOffset)
-    private fun storeObject(reg: Int) = mv.visitVarInsn(AsmOpcodes.ASTORE, reg + registerOffset)
+    /**
+     * Maps a (Dalvik register, type category) pair to a JVM local variable slot.
+     *
+     * Dalvik registers are untyped — the same register can hold an int at one point
+     * and an object at another. JVM local variable slots are typed and the verifier
+     * rejects type conflicts. To solve this, each Dalvik register gets [NUM_TYPE_SLOTS]
+     * separate JVM slots (one per type category). Parameters are copied from their
+     * fixed JVM slots to mapped slots at method entry (see [emitParameterCopies]).
+     *
+     * Layout: [param slots 0..paramRegCount-1] [mapped: reg0*5+type, reg1*5+type, ...]
+     */
+    private fun mapReg(dalvikReg: Int, typeSlot: Int): Int {
+        return paramRegCount + dalvikReg * NUM_TYPE_SLOTS + typeSlot
+    }
+
+    private fun setRegType(reg: Int, type: RegType) {
+        if (reg in registerTypes.indices) registerTypes[reg] = type
+    }
+
+    private fun regType(reg: Int): RegType =
+        if (reg in registerTypes.indices) registerTypes[reg] else RegType.UNKNOWN
+
+    private fun loadInt(reg: Int) = mv.visitVarInsn(AsmOpcodes.ILOAD, mapReg(reg, TYPE_INT))
+    private fun storeInt(reg: Int) { mv.visitVarInsn(AsmOpcodes.ISTORE, mapReg(reg, TYPE_INT)); setRegType(reg, RegType.INT) }
+    private fun loadLong(reg: Int) = mv.visitVarInsn(AsmOpcodes.LLOAD, mapReg(reg, TYPE_LONG))
+    private fun storeLong(reg: Int) { mv.visitVarInsn(AsmOpcodes.LSTORE, mapReg(reg, TYPE_LONG)); setRegType(reg, RegType.LONG) }
+    private fun loadFloat(reg: Int) = mv.visitVarInsn(AsmOpcodes.FLOAD, mapReg(reg, TYPE_FLOAT))
+    private fun storeFloat(reg: Int) { mv.visitVarInsn(AsmOpcodes.FSTORE, mapReg(reg, TYPE_FLOAT)); setRegType(reg, RegType.FLOAT) }
+    private fun loadDouble(reg: Int) = mv.visitVarInsn(AsmOpcodes.DLOAD, mapReg(reg, TYPE_DOUBLE))
+    private fun storeDouble(reg: Int) { mv.visitVarInsn(AsmOpcodes.DSTORE, mapReg(reg, TYPE_DOUBLE)); setRegType(reg, RegType.DOUBLE) }
+    private fun loadObject(reg: Int) = mv.visitVarInsn(AsmOpcodes.ALOAD, mapReg(reg, TYPE_OBJECT))
+    private fun storeObject(reg: Int) { mv.visitVarInsn(AsmOpcodes.ASTORE, mapReg(reg, TYPE_OBJECT)); setRegType(reg, RegType.OBJECT) }
 
     private fun loadByType(reg: Int, type: String) {
         when (type) {
@@ -606,7 +732,7 @@ class DexInstructionTranslator(
             dexType.startsWith("L") && dexType.endsWith(";") ->
                 dexType.substring(1, dexType.length - 1)
             dexType.startsWith("[") ->
-                "[" + dexTypeToJvmType(dexType.substring(1))
+                dexType  // Array descriptors are identical in DEX and JVM
             else -> dexType
         }
     }
@@ -614,5 +740,61 @@ class DexInstructionTranslator(
     private fun buildMethodDescriptor(methodRef: MethodReference): String {
         val params = methodRef.parameterTypes.joinToString("") { it.toString() }
         return "($params)${methodRef.returnType}"
+    }
+
+    companion object {
+        private const val TYPE_INT = 0
+        private const val TYPE_LONG = 1
+        private const val TYPE_FLOAT = 2
+        private const val TYPE_DOUBLE = 3
+        private const val TYPE_OBJECT = 4
+        private const val NUM_TYPE_SLOTS = 5
+
+        /** All opcodes handled by [translateInstruction]. */
+        private val SUPPORTED_OPCODES: Set<Opcode> = setOf(
+            Opcode.CONST_4, Opcode.CONST_16, Opcode.CONST, Opcode.CONST_HIGH16,
+            Opcode.CONST_WIDE_16, Opcode.CONST_WIDE_32, Opcode.CONST_WIDE, Opcode.CONST_WIDE_HIGH16,
+            Opcode.CONST_STRING, Opcode.CONST_STRING_JUMBO,
+            Opcode.MOVE, Opcode.MOVE_FROM16, Opcode.MOVE_16,
+            Opcode.MOVE_WIDE, Opcode.MOVE_WIDE_FROM16, Opcode.MOVE_WIDE_16,
+            Opcode.MOVE_OBJECT, Opcode.MOVE_OBJECT_FROM16, Opcode.MOVE_OBJECT_16,
+            Opcode.MOVE_RESULT, Opcode.MOVE_RESULT_WIDE, Opcode.MOVE_RESULT_OBJECT,
+            Opcode.RETURN_VOID, Opcode.RETURN, Opcode.RETURN_WIDE, Opcode.RETURN_OBJECT,
+            Opcode.INVOKE_VIRTUAL, Opcode.INVOKE_VIRTUAL_RANGE,
+            Opcode.INVOKE_SUPER, Opcode.INVOKE_SUPER_RANGE,
+            Opcode.INVOKE_DIRECT, Opcode.INVOKE_DIRECT_RANGE,
+            Opcode.INVOKE_STATIC, Opcode.INVOKE_STATIC_RANGE,
+            Opcode.INVOKE_INTERFACE, Opcode.INVOKE_INTERFACE_RANGE,
+            Opcode.IGET, Opcode.IGET_WIDE, Opcode.IGET_OBJECT,
+            Opcode.IGET_BOOLEAN, Opcode.IGET_BYTE, Opcode.IGET_CHAR, Opcode.IGET_SHORT,
+            Opcode.IPUT, Opcode.IPUT_WIDE, Opcode.IPUT_OBJECT,
+            Opcode.IPUT_BOOLEAN, Opcode.IPUT_BYTE, Opcode.IPUT_CHAR, Opcode.IPUT_SHORT,
+            Opcode.SGET, Opcode.SGET_WIDE, Opcode.SGET_OBJECT,
+            Opcode.SGET_BOOLEAN, Opcode.SGET_BYTE, Opcode.SGET_CHAR, Opcode.SGET_SHORT,
+            Opcode.SPUT, Opcode.SPUT_WIDE, Opcode.SPUT_OBJECT,
+            Opcode.SPUT_BOOLEAN, Opcode.SPUT_BYTE, Opcode.SPUT_CHAR, Opcode.SPUT_SHORT,
+            Opcode.NEW_INSTANCE, Opcode.NEW_ARRAY,
+            Opcode.IF_EQ, Opcode.IF_NE, Opcode.IF_LT, Opcode.IF_GE, Opcode.IF_GT, Opcode.IF_LE,
+            Opcode.IF_EQZ, Opcode.IF_NEZ, Opcode.IF_LTZ, Opcode.IF_GEZ, Opcode.IF_GTZ, Opcode.IF_LEZ,
+            Opcode.GOTO, Opcode.GOTO_16, Opcode.GOTO_32,
+            Opcode.ADD_INT, Opcode.ADD_INT_2ADDR, Opcode.ADD_INT_LIT8, Opcode.ADD_INT_LIT16,
+            Opcode.SUB_INT, Opcode.SUB_INT_2ADDR,
+            Opcode.MUL_INT, Opcode.MUL_INT_2ADDR, Opcode.MUL_INT_LIT8, Opcode.MUL_INT_LIT16,
+            Opcode.DIV_INT, Opcode.DIV_INT_2ADDR, Opcode.DIV_INT_LIT8, Opcode.DIV_INT_LIT16,
+            Opcode.NOP, Opcode.THROW, Opcode.CHECK_CAST, Opcode.INSTANCE_OF,
+            Opcode.AGET, Opcode.AGET_WIDE, Opcode.AGET_OBJECT,
+            Opcode.AGET_BOOLEAN, Opcode.AGET_BYTE, Opcode.AGET_CHAR, Opcode.AGET_SHORT,
+            Opcode.APUT, Opcode.APUT_WIDE, Opcode.APUT_OBJECT,
+            Opcode.APUT_BOOLEAN, Opcode.APUT_BYTE, Opcode.APUT_CHAR, Opcode.APUT_SHORT,
+            Opcode.ARRAY_LENGTH,
+        )
+
+        /**
+         * Pre-scans instructions to check if all opcodes are translatable.
+         * Methods with unsupported opcodes should use stub bodies to avoid
+         * producing invalid JVM bytecode (uninitialized locals, stack corruption).
+         */
+        fun canTranslate(instructions: Iterable<Instruction>): Boolean =
+            instructions.all { it.opcode in SUPPORTED_OPCODES }
     }
 }
