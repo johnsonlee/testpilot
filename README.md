@@ -300,8 +300,8 @@ class ViewMeasureSpecTest {
   - [x] Visual comparison utilities (ImageComparator, SnapshotManager, assertions)
 - [x] Complete Resources system with qualifiers
 - [x] Fragment support
-- [ ] RecyclerView
-- [ ] ViewPager
+- [x] RecyclerView
+- [x] ViewPager
 - [ ] More widgets coverage
 
 **Goal**: Test medium-complexity real-world APKs with pixel-perfect screenshots
