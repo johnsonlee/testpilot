@@ -299,7 +299,7 @@ class ViewMeasureSpecTest {
   - [x] Implement `takeScreenshot()` API
   - [x] Visual comparison utilities (ImageComparator, SnapshotManager, assertions)
 - [x] Complete Resources system with qualifiers
-- [ ] Fragment support
+- [x] Fragment support
 - [ ] RecyclerView
 - [ ] ViewPager
 - [ ] More widgets coverage
@@ -307,6 +307,7 @@ class ViewMeasureSpecTest {
 **Goal**: Test medium-complexity real-world APKs with pixel-perfect screenshots
 
 ### Phase 4: Production Ready (4-6 weeks)
+- [ ] `android.view.Window` API support (statusBarColor, navigationBarColor, flags, decorView, etc.)
 - [ ] Performance optimization (caching, incremental processing)
 - [ ] Comprehensive widget support
 - [ ] CI/CD integration guide

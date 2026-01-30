@@ -1,5 +1,6 @@
 package io.johnsonlee.testpilot.simulator.activity
 
+import io.johnsonlee.testpilot.simulator.app.FragmentManager
 import io.johnsonlee.testpilot.simulator.content.Context
 import io.johnsonlee.testpilot.simulator.os.Bundle
 import io.johnsonlee.testpilot.simulator.resources.Resources
@@ -20,6 +21,8 @@ abstract class Activity : Context() {
 
     private var _resources: Resources? = null
     override val resources: Resources get() = _resources ?: throw IllegalStateException("Resources not initialized")
+
+    private var _fragmentManager: FragmentManager? = null
 
     private val lifecycleCallbacks = mutableListOf<(LifecycleEvent) -> Unit>()
 
@@ -88,6 +91,22 @@ abstract class Activity : Context() {
     open fun startActivityForResult(intent: Any?, requestCode: Int) {}
 
     /**
+     * Return the FragmentManager for interacting with fragments associated with this activity.
+     */
+    open fun getFragmentManager(): FragmentManager {
+        if (_fragmentManager == null) {
+            _fragmentManager = FragmentManager(this)
+        }
+        return _fragmentManager!!
+    }
+
+    /**
+     * Return the FragmentManager for interacting with fragments associated with this activity.
+     * Equivalent to [getFragmentManager] in the simulator.
+     */
+    open fun getSupportFragmentManager(): FragmentManager = getFragmentManager()
+
+    /**
      * Add a lifecycle callback.
      */
     fun addLifecycleCallback(callback: (LifecycleEvent) -> Unit) {
@@ -106,27 +125,32 @@ abstract class Activity : Context() {
         _lifecycleState = LifecycleState.STARTED
         notifyCallbacks(LifecycleEvent.ON_START)
         onStart()
+        _fragmentManager?.dispatchStart()
     }
 
     internal fun performResume() {
         _lifecycleState = LifecycleState.RESUMED
         notifyCallbacks(LifecycleEvent.ON_RESUME)
         onResume()
+        _fragmentManager?.dispatchResume()
     }
 
     internal fun performPause() {
+        _fragmentManager?.dispatchPause()
         _lifecycleState = LifecycleState.PAUSED
         notifyCallbacks(LifecycleEvent.ON_PAUSE)
         onPause()
     }
 
     internal fun performStop() {
+        _fragmentManager?.dispatchStop()
         _lifecycleState = LifecycleState.STOPPED
         notifyCallbacks(LifecycleEvent.ON_STOP)
         onStop()
     }
 
     internal fun performDestroy() {
+        _fragmentManager?.dispatchDestroy()
         _lifecycleState = LifecycleState.DESTROYED
         notifyCallbacks(LifecycleEvent.ON_DESTROY)
         onDestroy()

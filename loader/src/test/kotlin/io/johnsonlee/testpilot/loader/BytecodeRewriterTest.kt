@@ -50,6 +50,54 @@ class BytecodeRewriterTest {
     }
 
     @Test
+    fun `should map Android Fragment to TestPilot Fragment`() {
+        val mapped = rewriter.getMappedName("android/app/Fragment")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/app/Fragment")
+    }
+
+    @Test
+    fun `should map Android FragmentManager to TestPilot FragmentManager`() {
+        val mapped = rewriter.getMappedName("android/app/FragmentManager")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/app/FragmentManager")
+    }
+
+    @Test
+    fun `should map Android FragmentTransaction to TestPilot FragmentTransaction`() {
+        val mapped = rewriter.getMappedName("android/app/FragmentTransaction")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/app/FragmentTransaction")
+    }
+
+    @Test
+    fun `should map AndroidX Fragment to TestPilot Fragment`() {
+        val mapped = rewriter.getMappedName("androidx/fragment/app/Fragment")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/app/Fragment")
+    }
+
+    @Test
+    fun `should map AndroidX FragmentManager to TestPilot FragmentManager`() {
+        val mapped = rewriter.getMappedName("androidx/fragment/app/FragmentManager")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/app/FragmentManager")
+    }
+
+    @Test
+    fun `should map AndroidX FragmentTransaction to TestPilot FragmentTransaction`() {
+        val mapped = rewriter.getMappedName("androidx/fragment/app/FragmentTransaction")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/app/FragmentTransaction")
+    }
+
+    @Test
+    fun `should map AndroidX FragmentActivity to TestPilot FragmentActivity`() {
+        val mapped = rewriter.getMappedName("androidx/fragment/app/FragmentActivity")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/app/FragmentActivity")
+    }
+
+    @Test
+    fun `should map AppCompatActivity to TestPilot FragmentActivity`() {
+        val mapped = rewriter.getMappedName("androidx/appcompat/app/AppCompatActivity")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/app/FragmentActivity")
+    }
+
+    @Test
     fun `should not map non-Android classes`() {
         val mapped = rewriter.getMappedName("com/example/MyClass")
         assertThat(mapped).isEqualTo("com/example/MyClass")

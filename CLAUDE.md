@@ -152,6 +152,33 @@ class LayoutRenderer(private val resourceRepository: ResourceRepository)
 - `Configuration` data class lives in simulator (needed by `Resources`) and is mapped from `android/content/res/Configuration` via bytecode rewriting
 - When adding new Android class shims, always add the corresponding bytecode mapping in `BytecodeRewriter.classMapping`
 
+### Fragment Support
+
+- Fragment shims live in `simulator/app/` package (`io.johnsonlee.testpilot.simulator.app`), not `simulator/activity/`, to mirror `android.app.Fragment`
+- Fragment lifecycle is driven by `FragmentManager` via `internal performXxx()` methods — same pattern as `Activity`/`ActivityController`
+- Fragment lifecycle dispatch order matters:
+  - Forward (start, resume): Activity callback runs first, then `FragmentManager.dispatchXxx()` advances fragments
+  - Backward (pause, stop, destroy): `FragmentManager.dispatchXxx()` tears down fragments first, then Activity callback runs
+- `FragmentManager` is lazily initialized on `Activity` via `_fragmentManager: FragmentManager?` — lifecycle dispatch uses `_fragmentManager?.dispatchXxx()` to skip dispatch entirely when no fragments are used
+- When a fragment is added to an already-resumed activity, it advances through the full lifecycle (attach → create → createView → viewCreated → start → resume) immediately in `addFragment()`
+- When a fragment is added to a created-only activity, it stops at `onViewCreated`; subsequent `dispatchStart()`/`dispatchResume()` calls from Activity lifecycle advance it further
+- `Fragment.id` stores the container view ID (matching Android's `Fragment.getId()` behavior), not a unique fragment identifier — `findFragmentById()` looks up by container ID
+- Back stack entries must track which fragments were removed during a `Replace` operation, so `popBackStack()` can re-add them
+- Both `android.app.Fragment` (deprecated framework) and `androidx.fragment.app.Fragment` map to the same simulator class
+- `AppCompatActivity` maps to `FragmentActivity` since it extends `FragmentActivity` in real AndroidX
+
+### Canvas Rendering & Pixel-Level Testing
+
+- The simulator's `Canvas` is a command recorder (`List<DrawCommand>`), not a pixel rasteriser — `Window.draw()` returns a Canvas of abstract commands, not an image
+- `Canvas.toImage()` (in `CanvasRenderer.kt`) bridges this gap by replaying `DrawCommand` objects onto `java.awt.Graphics2D` to produce a `BufferedImage`
+- The rasteriser must maintain a `save()`/`restore()` stack of `AffineTransform` to correctly handle `ViewGroup.drawChildren()` which wraps each child in save → translate → draw → restore
+- Fragment views added to a container are not automatically measured/laid out — call `window.measureAndLayout()` before `window.draw()` to ensure the new children have non-zero dimensions
+- Use `MATCH_PARENT` layout params on fragment views for pixel tests so they fill the container; `WRAP_CONTENT` with a bare `View` yields 0×0 (suggestedMinimumWidth/Height defaults to 0)
+- `ViewGroup.drawChildren()` skips `GONE` views, so hidden fragments produce no draw commands and no pixels — this is the mechanism behind hide/show rendering tests
+- For deterministic pixel tests, use solid-color `View` subclasses (override `draw()` with `canvas.drawRect(…)`) rather than text rendering, which varies across JDK versions
+- `BufferedImage.getRGB(x, y)` returns ARGB in the same format as `io.johnsonlee.testpilot.simulator.graphics.Color` constants, so direct `==` comparison works
+- Use small `Window(100, 100)` for pixel tests to keep images small and assertions readable
+
 ### Golden Image Testing
 
 - Use record mode (`-Dtestpilot.record=true`) to capture baseline images
