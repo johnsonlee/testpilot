@@ -66,6 +66,26 @@ class BytecodeRewriter {
         "androidx/recyclerview/widget/RecyclerView\$State" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$State",
         "androidx/recyclerview/widget/LinearLayoutManager" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$LinearLayoutManager",
         "androidx/recyclerview/widget/GridLayoutManager" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$GridLayoutManager",
+
+        // ViewPager (androidx)
+        "androidx/viewpager/widget/ViewPager" to "io/johnsonlee/testpilot/simulator/widget/ViewPager",
+        "androidx/viewpager/widget/ViewPager\$OnPageChangeListener" to "io/johnsonlee/testpilot/simulator/widget/ViewPager\$OnPageChangeListener",
+        "androidx/viewpager/widget/ViewPager\$SimpleOnPageChangeListener" to "io/johnsonlee/testpilot/simulator/widget/ViewPager\$SimpleOnPageChangeListener",
+        "androidx/viewpager/widget/ViewPager\$PageTransformer" to "io/johnsonlee/testpilot/simulator/widget/ViewPager\$PageTransformer",
+        "androidx/viewpager/widget/PagerAdapter" to "io/johnsonlee/testpilot/simulator/widget/ViewPager\$PagerAdapter",
+
+        // ViewPager (legacy support lib)
+        "android/support/v4/view/ViewPager" to "io/johnsonlee/testpilot/simulator/widget/ViewPager",
+        "android/support/v4/view/ViewPager\$OnPageChangeListener" to "io/johnsonlee/testpilot/simulator/widget/ViewPager\$OnPageChangeListener",
+        "android/support/v4/view/ViewPager\$SimpleOnPageChangeListener" to "io/johnsonlee/testpilot/simulator/widget/ViewPager\$SimpleOnPageChangeListener",
+        "android/support/v4/view/ViewPager\$PageTransformer" to "io/johnsonlee/testpilot/simulator/widget/ViewPager\$PageTransformer",
+        "android/support/v4/view/PagerAdapter" to "io/johnsonlee/testpilot/simulator/widget/ViewPager\$PagerAdapter",
+
+        // FragmentPagerAdapter
+        "androidx/fragment/app/FragmentPagerAdapter" to "io/johnsonlee/testpilot/simulator/widget/FragmentPagerAdapter",
+        "androidx/fragment/app/FragmentStatePagerAdapter" to "io/johnsonlee/testpilot/simulator/widget/FragmentStatePagerAdapter",
+        "android/support/v4/app/FragmentPagerAdapter" to "io/johnsonlee/testpilot/simulator/widget/FragmentPagerAdapter",
+        "android/support/v4/app/FragmentStatePagerAdapter" to "io/johnsonlee/testpilot/simulator/widget/FragmentStatePagerAdapter",
     )
 
     private val remapper = object : Remapper() {

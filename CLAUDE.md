@@ -199,6 +199,19 @@ class LayoutRenderer(private val resourceRepository: ResourceRepository)
 - `dispatchTouchEvent` must offset event coordinates by `scrollOffsetX`/`scrollOffsetY` before delegating to `super` — `draw()` translates by negative scroll offset, so touch coords need the inverse transform to match child layout positions
 - Simulator's `View.setOnClickListener` does NOT set `isClickable = true` (unlike real Android) — touch-dispatch tests must explicitly set `isClickable = true` on views that need to receive click events
 
+### ViewPager Support
+
+- PagerAdapter contract: `instantiateItem` adds a view to the container and returns an opaque key; `isViewFromObject` maps views back to keys; `destroyItem` removes the view and cleans up the key
+- Page window recycling: only `currentItem ± offscreenPageLimit` pages are alive at any time; `updatePageWindow()` calls `destroyItem` for pages leaving the window and `instantiateItem` for pages entering it
+- `onLayout` must use `isViewFromObject` to find each child's page index (children aren't in page order and not all pages exist as children) — `findPageIndex(child)` iterates `pageKeys` checking `isViewFromObject`
+- Scroll offset = `currentItem * width`; set in `onLayout` to handle initial layout timing
+- `populatePages()` resets `currentItem` to 0 and re-creates the entire `pageKeys` array — called on adapter set and `notifyDataSetChanged`
+- FragmentPagerAdapter uses `add(fragment, tag)` with `containerId=0` so FragmentManager runs the lifecycle without touching any container; the adapter manually adds `fragment.view` to the ViewPager
+- FragmentPagerAdapter uses `hide` in `destroyItem` (keeps fragments alive in FragmentManager); FragmentStatePagerAdapter uses `remove` (fully destroys them)
+- `PagerAdapter` is top-level in AndroidX (`androidx.viewpager.widget.PagerAdapter`) but maps to inner `ViewPager$PagerAdapter` in the shim — same pattern as `LinearLayoutManager` mapping to `RecyclerView$LinearLayoutManager`
+- Both `android.support.v4.view.ViewPager` and `androidx.viewpager.widget.ViewPager` map to the same shim class
+- Fragment tag convention: `"android:switcher:$containerId:$position"` — used by both `FragmentPagerAdapter` and `FragmentStatePagerAdapter` for fragment lookup
+
 ### Golden Image Testing
 
 - Use record mode (`-Dtestpilot.record=true`) to capture baseline images

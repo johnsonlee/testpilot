@@ -157,6 +157,96 @@ class BytecodeRewriterTest {
         assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView\$GridLayoutManager")
     }
 
+    // ViewPager (androidx)
+
+    @Test
+    fun `should map AndroidX ViewPager to TestPilot ViewPager`() {
+        val mapped = rewriter.getMappedName("androidx/viewpager/widget/ViewPager")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/ViewPager")
+    }
+
+    @Test
+    fun `should map ViewPager OnPageChangeListener to TestPilot ViewPager OnPageChangeListener`() {
+        val mapped = rewriter.getMappedName("androidx/viewpager/widget/ViewPager\$OnPageChangeListener")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/ViewPager\$OnPageChangeListener")
+    }
+
+    @Test
+    fun `should map ViewPager SimpleOnPageChangeListener to TestPilot ViewPager SimpleOnPageChangeListener`() {
+        val mapped = rewriter.getMappedName("androidx/viewpager/widget/ViewPager\$SimpleOnPageChangeListener")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/ViewPager\$SimpleOnPageChangeListener")
+    }
+
+    @Test
+    fun `should map ViewPager PageTransformer to TestPilot ViewPager PageTransformer`() {
+        val mapped = rewriter.getMappedName("androidx/viewpager/widget/ViewPager\$PageTransformer")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/ViewPager\$PageTransformer")
+    }
+
+    @Test
+    fun `should map AndroidX PagerAdapter to TestPilot ViewPager PagerAdapter`() {
+        val mapped = rewriter.getMappedName("androidx/viewpager/widget/PagerAdapter")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/ViewPager\$PagerAdapter")
+    }
+
+    // ViewPager (legacy support lib)
+
+    @Test
+    fun `should map support lib ViewPager to TestPilot ViewPager`() {
+        val mapped = rewriter.getMappedName("android/support/v4/view/ViewPager")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/ViewPager")
+    }
+
+    @Test
+    fun `should map support lib ViewPager OnPageChangeListener to TestPilot`() {
+        val mapped = rewriter.getMappedName("android/support/v4/view/ViewPager\$OnPageChangeListener")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/ViewPager\$OnPageChangeListener")
+    }
+
+    @Test
+    fun `should map support lib ViewPager SimpleOnPageChangeListener to TestPilot`() {
+        val mapped = rewriter.getMappedName("android/support/v4/view/ViewPager\$SimpleOnPageChangeListener")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/ViewPager\$SimpleOnPageChangeListener")
+    }
+
+    @Test
+    fun `should map support lib ViewPager PageTransformer to TestPilot`() {
+        val mapped = rewriter.getMappedName("android/support/v4/view/ViewPager\$PageTransformer")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/ViewPager\$PageTransformer")
+    }
+
+    @Test
+    fun `should map support lib PagerAdapter to TestPilot ViewPager PagerAdapter`() {
+        val mapped = rewriter.getMappedName("android/support/v4/view/PagerAdapter")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/ViewPager\$PagerAdapter")
+    }
+
+    // FragmentPagerAdapter
+
+    @Test
+    fun `should map AndroidX FragmentPagerAdapter to TestPilot FragmentPagerAdapter`() {
+        val mapped = rewriter.getMappedName("androidx/fragment/app/FragmentPagerAdapter")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/FragmentPagerAdapter")
+    }
+
+    @Test
+    fun `should map AndroidX FragmentStatePagerAdapter to TestPilot FragmentStatePagerAdapter`() {
+        val mapped = rewriter.getMappedName("androidx/fragment/app/FragmentStatePagerAdapter")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/FragmentStatePagerAdapter")
+    }
+
+    @Test
+    fun `should map support lib FragmentPagerAdapter to TestPilot FragmentPagerAdapter`() {
+        val mapped = rewriter.getMappedName("android/support/v4/app/FragmentPagerAdapter")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/FragmentPagerAdapter")
+    }
+
+    @Test
+    fun `should map support lib FragmentStatePagerAdapter to TestPilot FragmentStatePagerAdapter`() {
+        val mapped = rewriter.getMappedName("android/support/v4/app/FragmentStatePagerAdapter")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/FragmentStatePagerAdapter")
+    }
+
     @Test
     fun `should not map non-Android classes`() {
         val mapped = rewriter.getMappedName("com/example/MyClass")
