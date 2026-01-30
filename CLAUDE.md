@@ -179,6 +179,26 @@ class LayoutRenderer(private val resourceRepository: ResourceRepository)
 - `BufferedImage.getRGB(x, y)` returns ARGB in the same format as `io.johnsonlee.testpilot.simulator.graphics.Color` constants, so direct `==` comparison works
 - Use small `Window(100, 100)` for pixel tests to keep images small and assertions readable
 
+### RecyclerView Support
+
+- RecyclerView shim uses a simplified non-recycling model: `populateItems()` calls `onCreateViewHolder` + `onBindViewHolder` for every item, adding all views as children — no view pool or recycling
+- Adapter binding is triggered by property setters: setting `adapter` (when `layoutManager` is non-null) or `layoutManager` (when `adapter` is non-null) calls `populateItems()`; setting adapter to `null` clears all children
+- All `notifyXxx()` methods delegate to a single `dataObserver` callback that re-runs `populateItems()` — no incremental updates
+- `Adapter.createAndBindViewHolder` is an internal helper that uses `@Suppress("UNCHECKED_CAST")` to bridge the `Adapter<*>` wildcard projection back to `Adapter<ViewHolder>` for calling the typed abstract methods
+- `LayoutManager.onLayoutChildren(recyclerView)` is called from `RecyclerView.onLayout` — the LayoutManager receives the RecyclerView to access children, width/height, and measure specs
+- `LinearLayoutManager` and `GridLayoutManager` call `ViewGroup.getChildMeasureSpec()` (qualified, not inherited) because they are nested classes of `RecyclerView`, not subclasses of `ViewGroup` — unqualified `getChildMeasureSpec` won't resolve
+- `GridLayoutManager` extends `LinearLayoutManager` (mirrors AndroidX hierarchy) so it inherits orientation/reverseLayout properties and the `HORIZONTAL`/`VERTICAL` constants
+- AndroidX `LinearLayoutManager` and `GridLayoutManager` are top-level classes but map to inner classes in the shim (`RecyclerView$LinearLayoutManager`, `RecyclerView$GridLayoutManager`) — ASM's `Remapper.map()` handles the `$` separator in internal names transparently
+- Stub inner classes (`ItemDecoration`, `ItemAnimator`, `OnScrollListener`, `State`, `Rect`) prevent `NoClassDefFoundError` for apps that reference these types without actually using their functionality
+- For RecyclerView pixel tests, use `getItemViewType` to pass color values to `onCreateViewHolder`, since `ColorView`'s fill color is set at construction time and `onBindViewHolder` can't change it
+- `totalContentWidth()`/`totalContentHeight()` must iterate all children (not just the last) to handle grids with incomplete last row/column — the last child may not occupy the maximum right/bottom position
+- `scrollToPosition` uses minimum-scroll semantics: no-op if item is already visible; otherwise scrolls just enough to bring the near edge into view (top/left if above, bottom/right if below)
+- `scrollBy` gates dx/dy on layout manager orientation — vertical layouts only scroll Y, horizontal layouts only scroll X
+- `scrollToPositionWithOffset(position, offset)` always jumps so item's start edge is `offset` px from viewport start; lives on `LinearLayoutManager`, delegates via `LayoutManager.recyclerView` back-reference
+- `LayoutManager` holds an `internal var recyclerView: RecyclerView?` back-reference, wired in the `layoutManager` property setter (set on assign, cleared on previous)
+- `dispatchTouchEvent` must offset event coordinates by `scrollOffsetX`/`scrollOffsetY` before delegating to `super` — `draw()` translates by negative scroll offset, so touch coords need the inverse transform to match child layout positions
+- Simulator's `View.setOnClickListener` does NOT set `isClickable = true` (unlike real Android) — touch-dispatch tests must explicitly set `isClickable = true` on views that need to receive click events
+
 ### Golden Image Testing
 
 - Use record mode (`-Dtestpilot.record=true`) to capture baseline images

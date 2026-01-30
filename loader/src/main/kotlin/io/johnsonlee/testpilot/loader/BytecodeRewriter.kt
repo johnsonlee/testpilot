@@ -54,6 +54,18 @@ class BytecodeRewriter {
         // Resources
         "android/content/res/Resources" to "io/johnsonlee/testpilot/simulator/resources/Resources",
         "android/content/res/Configuration" to "io/johnsonlee/testpilot/simulator/resources/Configuration",
+
+        // RecyclerView
+        "androidx/recyclerview/widget/RecyclerView" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView",
+        "androidx/recyclerview/widget/RecyclerView\$Adapter" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$Adapter",
+        "androidx/recyclerview/widget/RecyclerView\$ViewHolder" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$ViewHolder",
+        "androidx/recyclerview/widget/RecyclerView\$LayoutManager" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$LayoutManager",
+        "androidx/recyclerview/widget/RecyclerView\$ItemDecoration" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$ItemDecoration",
+        "androidx/recyclerview/widget/RecyclerView\$ItemAnimator" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$ItemAnimator",
+        "androidx/recyclerview/widget/RecyclerView\$OnScrollListener" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$OnScrollListener",
+        "androidx/recyclerview/widget/RecyclerView\$State" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$State",
+        "androidx/recyclerview/widget/LinearLayoutManager" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$LinearLayoutManager",
+        "androidx/recyclerview/widget/GridLayoutManager" to "io/johnsonlee/testpilot/simulator/widget/RecyclerView\$GridLayoutManager",
     )
 
     private val remapper = object : Remapper() {
