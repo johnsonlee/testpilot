@@ -5,6 +5,4 @@ plugins {
 }
 
 include(":simulator")
-include(":loader")
 include(":renderer")
-include(":demo")

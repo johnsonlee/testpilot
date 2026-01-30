@@ -2,7 +2,7 @@
 
 ## Overview
 
-TestPilot enables **testing any Android APK** on standard JVM without emulators or physical devices. By converting DEX bytecode to JVM bytecode and providing an Android API shim layer, developers can run fast, reliable UI tests directly on their development machines or CI servers.
+TestPilot enables **testing any Android APK** on standard JVM without emulators or physical devices. By converting DEX bytecode to JVM bytecode and using Android's official layoutlib for framework classes, developers can run fast, reliable tests directly on their development machines or CI servers.
 
 ## Core Idea
 
@@ -11,18 +11,17 @@ TestPilot enables **testing any Android APK** on standard JVM without emulators 
 Input: APK file → Output: Test results on pure JVM
 
 ```kotlin
-val session = TestPilot.load("app.apk").launch()
+// Load APK and launch the default launcher activity
+val app = TestPilot.load("app.apk")
+val session = app.launch()
 
-// Tap by coordinates
-session.tap(100f, 200f)
-
-// Tap by view ID
-session.tap(R.id.login_button)
+// Access the real android.app.Activity instance
+val activity = session.getActivity()
 
 // Lifecycle control
 session.pause().resume().stop().destroy()
 
-// Screenshot (using layoutlib for pixel-perfect rendering)
+// Render any layout XML as a pixel-perfect screenshot (via layoutlib)
 val screenshot = session.takeScreenshot("""
     <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
         android:layout_width="match_parent"
@@ -73,35 +72,35 @@ Replace Maestro + Emulator with pure JVM execution for faster, more reliable tes
 ## How It Works
 
 ```
-┌─────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
-│   APK   │ ──▶│   Unpack    │ ──▶│ DEX → JVM   │ ──▶│  Bytecode   │ ──▶│   Run   │
-│         │    │             │    │  (dex2jar)  │    │  Rewrite    │    │ on JVM  │
-└─────────┘    └─────────────┘    └─────────────┘    └─────────────┘    └─────────┘
+┌─────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   APK   │ ──▶│   Unpack    │ ──▶│ DEX → JVM   │ ──▶│   Run on   │
+│         │    │             │    │  (dex2jar)  │    │    JVM      │
+└─────────┘    └─────────────┘    └─────────────┘    └─────────────┘
                     │                                      │
                     ▼                                      ▼
-              resources/                          android.view.View
-              AndroidManifest.xml                        ↓
-                                               io.johnsonlee.testpilot.simulator.View
+              resources/                          android.* references
+              AndroidManifest.xml                 resolve to layoutlib
+                                                  via parent classloader
 ```
 
 ### Pipeline Steps
 
 1. **APK Unpacking**: Extract classes.dex, resources, AndroidManifest.xml
-2. **DEX → JVM Conversion**: Convert Dalvik bytecode to JVM bytecode using dex2jar/enjarify
-3. **Bytecode Rewriting**: Replace `android.*` references with TestPilot shim classes
-4. **Execution**: Load transformed classes and run on standard JVM
+2. **DEX → JVM Conversion**: Convert Dalvik bytecode to JVM bytecode using dexlib2 + ASM
+3. **ClassLoader Setup**: Load converted classes with layoutlib as parent classloader — `android.*` references resolve to real layoutlib framework classes
+4. **Activity Lifecycle**: Drive `android.app.Activity` lifecycle via reflection on package-private `performCreate()`, `performStart()`, etc.
 
 ## Technical Challenges
 
 ### 1. DEX → JVM Bytecode Conversion
 - Android uses DEX/ART bytecode format, JVM uses class files
-- Solution: Use proven tools (dex2jar, enjarify) for conversion
+- Solution: Use dexlib2 for DEX parsing + ASM for JVM bytecode generation
 - Risk: Some edge cases may not convert perfectly
 
-### 2. Android Framework Dependencies
-- `android.*` packages rely heavily on native implementations
-- Solution: Implement shim layer that mimics Android API behavior
-- Priority: Focus on UI-related APIs first (View, Activity, Resources)
+### 2. Android Framework Classes
+- APK code references `android.*` packages that don't exist on standard JVM
+- Solution: Use **layoutlib** (Android Studio's rendering engine, 57MB, 26K+ classes) which contains the full Android framework (`android.app.Activity`, `android.widget.*`, `android.view.*`, etc.)
+- APK classes resolve `android.*` references to layoutlib via parent classloader delegation — no bytecode rewriting needed
 
 ### 3. Native Code (JNI) - Biggest Risk
 - Many APKs contain .so native libraries
@@ -119,66 +118,63 @@ Replace Maestro + Emulator with pure JVM execution for faster, more reliable tes
 ```
 ┌───────────────────────────────────────────────────────────────────┐
 │                          TestPilot SDK                            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐    │
-│  │ APK Loader  │  │  Assertions │  │  UI Actions             │    │
-│  │             │  │             │  │  (tap/swipe/input)      │    │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘    │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │ APK Loader  │  │  Assertions │  │  Lifecycle Control      │  │
+│  │             │  │             │  │  (create/start/resume)  │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
 ├───────────────────────────────────────────────────────────────────┤
-│                         App Simulator                             │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │                    Transformed APK Code                     │  │
-│  │       (android.* → io.johnsonlee.testpilot.simulator.*)     │  │
-│  └─────────────────────────────────────────────────────────────┘  │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │                    Android API Shim Layer                   │  │
-│  │         Activity | View | Resources | Intent | ...          │  │
-│  └─────────────────────────────────────────────────────────────┘  │
+│                         App Simulator                            │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │                    Converted APK Code                       │ │
+│  │         (DEX → JVM bytecode, loaded via ApkClassLoader)     │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │                     Layoutlib (Android Framework)           │ │
+│  │   android.app.Activity | android.widget.* | android.view.* │ │
+│  │         Real framework classes, not shims                   │ │
+│  └─────────────────────────────────────────────────────────────┘ │
 ├───────────────────────────────────────────────────────────────────┤
-│                       Rendering (Layoutlib)                       │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │                  Android Official Layoutlib                 │  │
-│  │              Pixel-perfect rendering on JVM                 │  │
-│  └─────────────────────────────────────────────────────────────┘  │
+│                       Rendering (Layoutlib)                      │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │                  Android Official Layoutlib                 │ │
+│  │              Pixel-perfect rendering on JVM                 │ │
+│  └─────────────────────────────────────────────────────────────┘ │
 ├───────────────────────────────────────────────────────────────────┤
-│                            JVM (JDK 21+)                          │
+│                            JVM (JDK 21+)                         │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-### Dual-Layer Design
+### Layoutlib-First Design
 
-TestPilot uses a **dual-layer architecture** to achieve both accurate behavior simulation and pixel-perfect rendering:
+TestPilot uses **layoutlib** as both the Android framework provider and the rendering engine:
 
-| Layer | Technology | Purpose |
-|-------|------------|---------|
-| **Behavior Simulation** | Bytecode Rewriting + Shim | Activity lifecycle, touch events, view hierarchy traversal |
-| **Rendering** | Android Layoutlib | Screenshot capture, visual regression testing |
+| Concern | Technology | Purpose |
+|---------|------------|---------|
+| **Framework Classes** | Layoutlib | Provides real `android.app.Activity`, `android.widget.*`, etc. |
+| **Activity Lifecycle** | Reflection | Drives `performCreate()`, `performStart()`, etc. on real Activity instances |
+| **Rendering** | Layoutlib | Screenshot capture, visual regression testing |
+| **Layout Inflation** | BinaryLayoutInflater | Creates real `android.widget.*` instances from binary XML |
 
-**Why this approach?**
-- **Shim Layer**: Fast, lightweight simulation for behavior testing (lifecycle, touch dispatch)
-- **Layoutlib**: Android's official rendering library used by Android Studio, ensures pixel-perfect screenshots that match real device rendering
-
-This is similar to how [Paparazzi](https://github.com/cashapp/paparazzi) (by Cash App) works for screenshot testing.
+This is the same approach used by [Paparazzi](https://github.com/cashapp/paparazzi) (layoutlib for rendering) combined with [Robolectric](https://github.com/robolectric/robolectric)'s pattern of reflection-based lifecycle driving.
 
 ## Key Components
 
 | Component | Approach |
 |-----------|----------|
-| APK Processing | Unzip + dexlib2 + ASM bytecode rewriting |
-| Activity Lifecycle | State machine + callback chain |
-| View System | measure/layout/draw pipeline implementation |
-| LayoutInflater | Binary XML parsing + reflection-based construction |
-| Resources | resources.arsc parsing + qualifier resolution |
-| Event Dispatch | TouchEvent simulation via View hierarchy |
+| APK Processing | Unzip + dexlib2 + ASM bytecode generation |
+| Activity Lifecycle | Reflection on `android.app.Activity.performXxx()` methods |
+| Layout Inflation | Binary XML parsing + real `android.widget.*` construction via layoutlib |
+| Resources | resources.arsc parsing + qualifier resolution (locale, density, night mode, etc.) |
 | Rendering | Android Layoutlib (official Android rendering library) |
 
 ## Scope & Limitations
 
 ### Supported
 - Pure Kotlin/Java APKs
-- Standard UI components (View, ViewGroup, common widgets)
+- Standard UI components (all `android.widget.*` classes via layoutlib)
 - Activity lifecycle testing
-- UI interaction testing (tap, swipe, text input)
 - Layout verification
+- Screenshot / visual regression testing
 
 ### Not Supported (Initially)
 - Native code (JNI/.so libraries)
@@ -188,168 +184,96 @@ This is similar to how [Paparazzi](https://github.com/cashapp/paparazzi) (by Cas
 
 ## Testing Strategy
 
-### 1. Unit Tests - Shim API Contract Verification
+### 1. APK Loading & Activity Lifecycle
 ```kotlin
-class ActivityLifecycleTest {
-    @Test
-    fun `onCreate should be called before onStart`() {
-        val calls = mutableListOf<String>()
-        val activity = TestActivity { calls += it }
+val app = TestPilot.load("test-fixtures/simple-app.apk")
 
-        activityController.create().start()
+// Launch a specific activity by class name
+val session = app.launch("com.example.MainActivity")
 
-        assertThat(calls).containsExactly("onCreate", "onStart")
-    }
-}
+// getActivity() returns android.app.Activity? (nullable if instantiation fails)
+val activity: android.app.Activity? = session.getActivity()
+
+// Drive lifecycle — each method returns the session for chaining
+session.pause().resume().stop().destroy()
 ```
 
-### 2. Integration Tests - Real APK Execution
+### 2. Layout Rendering & Visual Regression
 ```kotlin
-class ApkLoadingTest {
-    @Test
-    fun `should load and launch simple APK`() {
-        val app = TestPilot.load("test-fixtures/simple-app.apk")
+// takeScreenshot() renders arbitrary layout XML via layoutlib — it does NOT
+// capture the launched activity's content view. It is independent of the APK.
+val session = app.launch()
 
-        app.launch("com.example.MainActivity")
+val screenshot: BufferedImage = session.takeScreenshot("""
+    <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Hello World" />
+    </LinearLayout>
+""")
 
-        assertThat(app.currentActivity).isNotNull()
-        assertThat(app.findView<TextView>(R.id.title).text).isEqualTo("Hello")
-    }
-}
+// Golden image comparison (extension from renderer module)
+val snapshots = SnapshotManager(File("src/test/resources/golden"))
+screenshot.assertMatchesSnapshot(snapshots, "layout_activity", tolerance = 0.01)
 ```
 
-### 3. Visual Regression - Screenshot Comparison
+### 3. Resource Resolution
 ```kotlin
-class LayoutRenderingTest {
-    private val snapshots = SnapshotManager(File("src/test/snapshots"))
+// Parse resources.arsc, then resolve with a specific device configuration
+val resourceTable: ResourcesParser.ResourceTable = ResourcesParser.parse(arscFile)
+val resolver = ResourceTableResolver(resourceTable, DeviceConfiguration(locale = "es"))
 
-    @Test
-    fun `LinearLayout vertical should match Android rendering`() {
-        val session = TestPilot.load("test-fixtures/layout-test.apk").launch()
-
-        val screenshot = session.takeScreenshot("""
-            <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Hello World" />
-            </LinearLayout>
-        """)
-
-        // Assert against golden image with 1% tolerance
-        screenshot.assertMatchesSnapshot(snapshots, "layout_activity", tolerance = 0.01)
-    }
-
-    @Test
-    fun `record new golden image`() {
-        val session = TestPilot.load("app.apk").launch()
-        val screenshot = session.takeScreenshot(layoutXml)
-
-        // Auto-record if golden doesn't exist
-        screenshot.assertMatchesSnapshot(snapshots, "new_screen", recordIfMissing = true)
-    }
-}
-```
-
-### 4. Behavioral Tests - Golden Data Comparison
-```kotlin
-class ViewMeasureSpecTest {
-    @Test
-    fun `MeasureSpec packing should match Android`() {
-        val androidResults = loadGoldenData("measure_spec_cases.json")
-
-        androidResults.forEach { case ->
-            val jvmResult = MeasureSpec.makeMeasureSpec(case.size, case.mode)
-            assertThat(jvmResult).isEqualTo(case.expected)
-        }
-    }
-}
+// resolveString() returns String? (null if resource ID not found)
+val appName: String? = resolver.resolveString(0x7f010000)
 ```
 
 ## Roadmap
 
-### Phase 1: POC (1-2 days) ✅ COMPLETE
-- [x] Basic Activity lifecycle state machine
-- [x] Basic View/ViewGroup implementation
-- [x] Simple Canvas rendering
-- [x] APK unpacking (extract DEX, resources, manifest)
+### Phase 1: POC ✅ COMPLETE
+- [x] Basic APK unpacking (extract DEX, resources, manifest)
 - [x] DEX → JVM conversion (using dexlib2 + ASM)
-- [x] Basic bytecode rewriting framework (android.* → shim mapping)
-
-**Result**: Successfully loaded a real APK (7.5MB, 3713 classes) with 0 conversion errors
-
-### Phase 2: MVP (1-2 weeks) ✅ COMPLETE
-- [x] DEX instruction to JVM bytecode translation
 - [x] AndroidManifest.xml binary parsing
 - [x] Resources.arsc parsing (resource ID mapping)
+
+### Phase 2: MVP ✅ COMPLETE
+- [x] DEX instruction to JVM bytecode translation
 - [x] LayoutInflater with binary XML
-- [x] Common widgets (TextView, Button, ImageView, EditText, ScrollView, ProgressBar, etc.)
-- [x] Touch event dispatch
+- [x] Common widgets via layoutlib
 - [x] TestPilot SDK basic API
+- [x] Resource configuration resolution (locale, density, night mode, etc.)
 
-**Result**: Full APK loading pipeline with touch event dispatch. Supports tap interactions and event listeners.
+### Phase 3: Layoutlib Integration ✅ COMPLETE
+- [x] Layoutlib as Android framework provider (no hand-written shims)
+- [x] Reflection-based Activity lifecycle (`LayoutlibActivityController`)
+- [x] Real `android.widget.*` instances in `BinaryLayoutInflater`
+- [x] Renderer module for pixel-perfect screenshots
+- [x] Visual comparison utilities (ImageComparator, SnapshotManager, assertions)
 
-### Phase 3: Real App Support (3-4 weeks) 🚧 IN PROGRESS
-- [x] **Layoutlib Integration** - Android official rendering library
-  - [x] Add layoutlib dependencies
-  - [x] Create renderer module
-  - [x] Implement `takeScreenshot()` API
-  - [x] Visual comparison utilities (ImageComparator, SnapshotManager, assertions)
-- [x] Complete Resources system with qualifiers
-- [x] Fragment support
-- [x] RecyclerView
-- [x] ViewPager
-- [ ] More widgets coverage
-
-**Goal**: Test medium-complexity real-world APKs with pixel-perfect screenshots
-
-### Phase 4: Production Ready (4-6 weeks)
-- [ ] `android.view.Window` API support (statusBarColor, navigationBarColor, flags, decorView, etc.)
+### Phase 4: Production Ready
+- [ ] Touch event dispatch via layoutlib's view system
+- [ ] `android.view.Window` API support
 - [ ] Performance optimization (caching, incremental processing)
-- [ ] Comprehensive widget support
 - [ ] CI/CD integration guide
 - [ ] Documentation & examples
 - [ ] Edge case handling
-
-## Effort Estimation
-
-| Module | Estimated Effort |
-|--------|------------------|
-| APK Processing | 1-2 days |
-| DEX → JVM Conversion | 1 day |
-| Bytecode Rewriting | 2-3 days |
-| Android API Shim | 15-25 days |
-| Rendering Backend | 3-5 days |
-| TestPilot SDK | 3-5 days |
-| **Total** | **25-40 days** |
-
-> Note: Shim layer is the long tail - core 20% APIs cover 80% of use cases.
-
-## Use Cases
-
-1. **Fast UI Testing**: Test any APK on pure JVM, no emulator needed
-2. **CI/CD Optimization**: Parallel test execution without KVM overhead
-3. **Quick Verification**: Instant APK testing without device deployment
-4. **Reliable Tests**: Eliminate flakiness from system animations and popups
-5. **Better Debugging**: Same-process debugging with standard IDE tools
 
 ## Prior Art & Inspiration
 
 - **Robolectric**: Shadow-based Android testing (requires source, TestPilot takes APK)
 - **Paparazzi**: Screenshot testing using Layoutlib (requires source, TestPilot takes APK)
 - **Android Layoutlib**: Official Android rendering library used by Android Studio
-- **dex2jar/dexlib2**: DEX to JAR conversion
-- **Maestro**: Test orchestration API inspiration
-- **ASM**: Bytecode manipulation library
+- **dexlib2**: DEX parsing library
+- **ASM**: JVM bytecode generation library
 
 ## Alternatives Considered
 
 | Approach | Pros | Cons | Decision |
 |----------|------|------|----------|
-| DEX → JVM conversion | Mature tools, cacheable | Some conversion edge cases | ✅ Chosen |
+| DEX → JVM conversion + layoutlib | Mature tools, real framework classes | Large layoutlib dependency | ✅ Chosen |
 | DEX interpreter | 100% fidelity | Huge effort, slow execution | ❌ Too complex |
 | Source-based (like Robolectric) | Simple | Can't test arbitrary APK | ❌ Different goal |
 | Optimized emulator | Real Android | Still slow, needs KVM | ❌ No differentiation |
