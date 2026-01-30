@@ -21,6 +21,16 @@ class BytecodeRewriter {
         // Activity
         "android/app/Activity" to "io/johnsonlee/testpilot/simulator/activity/Activity",
 
+        // Fragment
+        "android/app/Fragment" to "io/johnsonlee/testpilot/simulator/app/Fragment",
+        "android/app/FragmentManager" to "io/johnsonlee/testpilot/simulator/app/FragmentManager",
+        "android/app/FragmentTransaction" to "io/johnsonlee/testpilot/simulator/app/FragmentTransaction",
+        "androidx/fragment/app/Fragment" to "io/johnsonlee/testpilot/simulator/app/Fragment",
+        "androidx/fragment/app/FragmentManager" to "io/johnsonlee/testpilot/simulator/app/FragmentManager",
+        "androidx/fragment/app/FragmentTransaction" to "io/johnsonlee/testpilot/simulator/app/FragmentTransaction",
+        "androidx/fragment/app/FragmentActivity" to "io/johnsonlee/testpilot/simulator/app/FragmentActivity",
+        "androidx/appcompat/app/AppCompatActivity" to "io/johnsonlee/testpilot/simulator/app/FragmentActivity",
+
         // View system
         "android/view/View" to "io/johnsonlee/testpilot/simulator/view/View",
         "android/view/ViewGroup" to "io/johnsonlee/testpilot/simulator/view/ViewGroup",
