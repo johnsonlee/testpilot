@@ -72,8 +72,9 @@ testpilot/
 ### Kotlin API Design
 
 - Use `init` block for automatic initialization instead of separate `initialize()` method
-- Use default parameters for optional arguments: `fun launch(activity: String? = null)`
-- Return `this` for method chaining in builder-style APIs
+- Use default parameters for optional arguments: `fun launch(activityClassName: String? = null)`
+- `TestPilot` implements `AutoCloseable` — use `use {}` blocks for automatic cleanup
+- `TestPilot` is the session: no separate `ActivitySession` class; lifecycle is managed internally by `launch()` and `close()`
 - Kotlin nested block comments: `/*` inside `/** */` KDoc opens a nested comment level
 
 ### Layoutlib Integration

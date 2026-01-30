@@ -1,10 +1,5 @@
 package io.johnsonlee.testpilot.simulator
 
-import io.johnsonlee.testpilot.renderer.DeviceConfig
-import io.johnsonlee.testpilot.renderer.LayoutRenderer
-import io.johnsonlee.testpilot.renderer.RenderEnvironment
-import io.johnsonlee.testpilot.renderer.RenderResult
-import java.awt.image.BufferedImage
 import java.io.File
 
 /**
@@ -12,23 +7,30 @@ import java.io.File
  *
  * Usage:
  * ```kotlin
- * val app = TestPilot.load("app.apk")
- * app.launch()  // launches the default launcher activity
- * app.launch("com.example.MainActivity")  // launches a specific activity
+ * TestPilot.load("app.apk").use { app ->
+ *     app.launch()  // launches the default launcher activity
+ *     app.launch("com.example.MainActivity")  // launches a specific activity
+ * }
  * ```
  */
 class TestPilot private constructor(
     private val apkFile: File,
     private val outputDir: File
-) {
+) : AutoCloseable {
     private val classLoader: ApkClassLoader
-    private var currentController: LayoutlibActivityController? = null
+    private var controller: LayoutlibActivityController? = null
 
     // Parsed APK data
     private var manifest: BinaryXmlParser.XmlDocument? = null
     private var resourceTable: ResourcesParser.ResourceTable? = null
-    private var packageName: String? = null
-    private var activities: List<ActivityInfo> = emptyList()
+
+    /** Package name from AndroidManifest.xml. */
+    var packageName: String? = null
+        private set
+
+    /** All activities declared in the manifest. */
+    var activities: List<ActivityInfo> = emptyList()
+        private set
 
     data class ActivityInfo(
         val name: String,
@@ -37,6 +39,7 @@ class TestPilot private constructor(
     )
 
     init {
+
         println("[TestPilot] Loading APK: ${apkFile.name}")
 
         // Step 1: Extract APK
@@ -158,38 +161,29 @@ class TestPilot private constructor(
         activities = activityMap.values.toList()
     }
 
-    /**
-     * Gets the package name from the manifest.
-     */
-    fun getPackageName(): String? = packageName
-
-    /**
-     * Gets all declared activities.
-     */
-    fun getActivities(): List<ActivityInfo> = activities
-
-    /**
-     * Gets the launcher activity (main entry point).
-     */
-    fun getLauncherActivity(): ActivityInfo? {
+    private fun findLauncherActivity(): ActivityInfo? {
         return activities.find { it.isLauncher && it.isMain }
             ?: activities.find { it.isMain }
             ?: activities.firstOrNull()
     }
 
     /**
-     * Launches an Activity.
+     * Launches an activity. Lifecycle is managed internally
+     * (previous activity is destroyed, new one is created, started, and resumed).
      *
-     * @param activityClassName The fully qualified class name of the activity to launch.
-     *                          If null, launches the default launcher activity.
+     * @param activityClassName Fully qualified class name, or null for the default launcher activity.
      * @param configuration The device configuration for resource resolution.
      */
     fun launch(
         activityClassName: String? = null,
         configuration: DeviceConfiguration = DeviceConfiguration.DEFAULT
-    ): ActivitySession {
-        val targetActivity = activityClassName ?: getLauncherActivity()?.name
+    ) {
+        val targetActivity = activityClassName ?: findLauncherActivity()?.name
             ?: throw IllegalStateException("No launcher activity found in manifest")
+
+        // Destroy previous activity if any
+        controller?.destroy()
+        controller = null
 
         println("[TestPilot] Launching: $targetActivity")
 
@@ -207,15 +201,10 @@ class TestPilot private constructor(
             null
         }
 
-        val resources = AppResources(configuration)
-        resourceTable?.let {
-            resources.resolver = ResourceTableResolver(it, configuration)
-        }
-
         // Try to instantiate the actual activity class
         if (activityClass == null || !android.app.Activity::class.java.isAssignableFrom(activityClass)) {
             println("[TestPilot] Warning: Activity class not compatible with android.app.Activity: $targetActivity")
-            return ActivitySession(this, null, resourceTable, resources)
+            return
         }
 
         val activity: android.app.Activity = try {
@@ -224,109 +213,24 @@ class TestPilot private constructor(
             constructor.newInstance() as android.app.Activity
         } catch (e: Throwable) {
             println("[TestPilot] Warning: Failed to instantiate activity: ${e.javaClass.simpleName}: ${e.message?.take(100)}")
-            return ActivitySession(this, null, resourceTable, resources)
+            return
         }
 
-        val controller = LayoutlibActivityController(activity)
+        val newController = LayoutlibActivityController(activity)
 
         // Drive lifecycle
-        controller.create().start().resume()
+        newController.create().start().resume()
 
-        currentController = controller
-        return ActivitySession(this, controller, resourceTable, resources)
+        controller = newController
     }
 
     /**
-     * Gets the resource table.
+     * Releases all resources (destroys current activity, cleans up classloader).
      */
-    fun getResources(): ResourcesParser.ResourceTable? = resourceTable
-
-    /**
-     * Gets the custom ClassLoader for this APK.
-     */
-    fun getClassLoader(): ClassLoader = classLoader
-
-    /**
-     * Represents a running Activity session.
-     */
-    class ActivitySession(
-        private val testPilot: TestPilot,
-        private val controller: LayoutlibActivityController?,
-        private val resourceTable: ResourcesParser.ResourceTable?,
-        private val appResources: AppResources
-    ) {
-        fun getActivity(): android.app.Activity? = controller?.get()
-
-        fun getResourceTable(): ResourcesParser.ResourceTable? = resourceTable
-
-        fun getAppResources(): AppResources = appResources
-
-        /**
-         * Gets a resource by ID.
-         */
-        fun getResource(resourceId: Int): ResourcesParser.ResourceEntry? {
-            return resourceTable?.getResource(resourceId)
-        }
-
-        fun pause(): ActivitySession {
-            controller?.pause()
-            return this
-        }
-
-        fun resume(): ActivitySession {
-            controller?.resume()
-            return this
-        }
-
-        fun stop(): ActivitySession {
-            controller?.stop()
-            return this
-        }
-
-        fun destroy(): ActivitySession {
-            controller?.destroy()
-            return this
-        }
-
-        // ==================== Screenshot Methods ====================
-
-        /**
-         * Takes a screenshot by rendering the provided layout XML using layoutlib.
-         *
-         * @param layoutXml The layout XML string to render.
-         * @param deviceConfig The device configuration (screen size, density, etc.).
-         * @param theme The theme to use for rendering.
-         * @return The rendered image.
-         */
-        fun takeScreenshot(
-            layoutXml: String,
-            deviceConfig: DeviceConfig = DeviceConfig.DEFAULT,
-            theme: String = "Theme.Material.Light.NoActionBar"
-        ): BufferedImage {
-            val environment = RenderEnvironment()
-            return LayoutRenderer(environment, deviceConfig).use { renderer ->
-                renderer.render(layoutXml, theme).image
-            }
-        }
-
-        /**
-         * Takes a screenshot by rendering the provided layout XML using layoutlib.
-         *
-         * @param layoutXml The layout XML string to render.
-         * @param deviceConfig The device configuration (screen size, density, etc.).
-         * @param theme The theme to use for rendering.
-         * @return The full render result including view hierarchy information.
-         */
-        fun renderLayout(
-            layoutXml: String,
-            deviceConfig: DeviceConfig = DeviceConfig.DEFAULT,
-            theme: String = "Theme.Material.Light.NoActionBar"
-        ): RenderResult {
-            val environment = RenderEnvironment()
-            return LayoutRenderer(environment, deviceConfig).use { renderer ->
-                renderer.render(layoutXml, theme)
-            }
-        }
+    override fun close() {
+        controller?.destroy()
+        controller = null
+        outputDir.deleteRecursively()
     }
 
     companion object {
@@ -352,7 +256,7 @@ class TestPilot private constructor(
 /**
  * Custom ClassLoader that loads classes from transformed APK bytecode.
  */
-class ApkClassLoader(
+internal class ApkClassLoader(
     private val classes: Map<String, ByteArray>,
     parent: ClassLoader?
 ) : ClassLoader(parent) {

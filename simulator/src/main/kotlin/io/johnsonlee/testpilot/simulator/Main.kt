@@ -153,25 +153,13 @@ fun main(args: Array<String>) {
         println("[6] Testing TestPilot SDK...")
         try {
             val app = TestPilot.load(apkFile)
-            println("    Package: ${app.getPackageName()}")
-            println("    Activities: ${app.getActivities().size}")
+            println("    Package: ${app.packageName}")
+            println("    Activities: ${app.activities.size}")
 
-            val launcher = app.getLauncherActivity()
-            println("    Launcher: ${launcher?.name}")
-
-            if (launcher != null) {
-                println("    Launching activity...")
-                val session = app.launch()
-                val activity = session.getActivity()
-                println("    Activity: ${activity?.javaClass?.simpleName ?: "null"}")
-
-                // Test lifecycle
-                session.pause()
-                session.resume()
-                session.stop()
-                session.destroy()
-                println("    Lifecycle test: PASSED")
-            }
+            app.launch()
+            println("    Launched successfully")
+            app.close()
+            println("    Lifecycle test: PASSED")
         } catch (e: Exception) {
             println("    SDK Error: ${e.message}")
         }

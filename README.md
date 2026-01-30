@@ -11,28 +11,19 @@ TestPilot enables **testing any Android APK** on standard JVM without emulators 
 Input: APK file → Output: Test results on pure JVM
 
 ```kotlin
-// Load APK and launch the default launcher activity
-val app = TestPilot.load("app.apk")
-val session = app.launch()
+// Load and launch the default launcher activity
+TestPilot.load("app.apk").use { app ->
+    app.launch()  // launches default launcher activity
 
-// Access the real android.app.Activity instance
-val activity = session.getActivity()
-
-// Lifecycle control
-session.pause().resume().stop().destroy()
+    // Or launch a specific activity
+    app.launch("com.example.MainActivity")
+}
 
 // Render any layout XML as a pixel-perfect screenshot (via layoutlib)
-val screenshot = session.takeScreenshot("""
-    <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent">
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Hello World" />
-    </LinearLayout>
-""")
-ImageIO.write(screenshot, "PNG", File("screenshot.png"))
+val result = LayoutRenderer(RenderEnvironment(), DeviceConfig.DEFAULT).use { renderer ->
+    renderer.render(layoutXml, theme)
+}
+ImageIO.write(result.image, "PNG", File("screenshot.png"))
 ```
 
 ## Product Direction
@@ -186,35 +177,28 @@ This is the same approach used by [Paparazzi](https://github.com/cashapp/paparaz
 
 ### 1. APK Loading & Activity Lifecycle
 ```kotlin
-val app = TestPilot.load("test-fixtures/simple-app.apk")
-
-// Launch a specific activity by class name
-val session = app.launch("com.example.MainActivity")
-
-// getActivity() returns android.app.Activity? (nullable if instantiation fails)
-val activity: android.app.Activity? = session.getActivity()
-
-// Drive lifecycle — each method returns the session for chaining
-session.pause().resume().stop().destroy()
+TestPilot.load("test-fixtures/simple-app.apk").use { app ->
+    app.launch()  // launches default launcher activity
+    app.launch("com.example.MainActivity")  // launches a specific activity
+}
 ```
 
 ### 2. Layout Rendering & Visual Regression
 ```kotlin
-// takeScreenshot() renders arbitrary layout XML via layoutlib — it does NOT
-// capture the launched activity's content view. It is independent of the APK.
-val session = app.launch()
-
-val screenshot: BufferedImage = session.takeScreenshot("""
-    <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical">
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Hello World" />
-    </LinearLayout>
-""")
+// Render arbitrary layout XML via layoutlib (independent of APK)
+val screenshot: BufferedImage = LayoutRenderer(RenderEnvironment(), DeviceConfig.DEFAULT).use { renderer ->
+    renderer.render("""
+        <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Hello World" />
+        </LinearLayout>
+    """, "Theme.Material.Light.NoActionBar").image
+}
 
 // Golden image comparison (extension from renderer module)
 val snapshots = SnapshotManager(File("src/test/resources/golden"))
