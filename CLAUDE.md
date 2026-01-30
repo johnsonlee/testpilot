@@ -6,6 +6,17 @@ This file contains project-specific context and learnings for Claude Code.
 
 TestPilot is an Android APK testing framework that runs on pure JVM without emulators.
 
+## Architecture
+
+TestPilot uses **layoutlib** (Android Studio's rendering engine, 57MB, 26K+ classes) to provide the complete Android framework (`android.app.Activity`, `android.widget.*`, etc.) on the JVM. No hand-written shims or bytecode rewriting is needed — APK classes reference `android.*` types that resolve to real layoutlib classes via the parent classloader.
+
+Key design decisions:
+- **Layoutlib provides `android.*` classes** — the same library Paparazzi uses for view rendering
+- **No bytecode rewriting** — APK code loads directly; `android.*` references resolve to layoutlib via parent classloader delegation
+- **Reflection-based lifecycle** — Activity lifecycle is driven via reflection on package-private `performCreate()`, `performStart()`, etc. methods (same pattern as Robolectric's `ActivityController`)
+- **`BinaryLayoutInflater` creates real `android.widget.*` instances** — `FrameLayout(context)`, `TextView(context)`, etc. from layoutlib, not shims
+- **AndroidX types use FrameLayout placeholders** — `RecyclerView`, `ViewPager`, `CardView` are AndroidX (bundled in APK), not framework; `BinaryLayoutInflater` uses `FrameLayout` as fallback for binary XML inflation
+
 ## Build & Test Commands
 
 ```bash
@@ -16,7 +27,6 @@ TestPilot is an Android APK testing framework that runs on pure JVM without emul
 ./gradlew test
 
 # Run specific module tests
-./gradlew :loader:test
 ./gradlew :simulator:test
 ./gradlew :renderer:test
 
@@ -27,17 +37,15 @@ TestPilot is an Android APK testing framework that runs on pure JVM without emul
 ./gradlew downloadTestFixtures
 
 # Run APK loader
-./gradlew :loader:run --args="path/to/app.apk"
+./gradlew :simulator:run --args="path/to/app.apk"
 ```
 
 ## Project Structure
 
 ```
 testpilot/
-├── simulator/     # Android API shim layer (View, Activity, etc.)
-├── loader/        # APK loading, DEX conversion, bytecode rewriting
+├── simulator/     # APK loading, DEX conversion, resource resolution, activity lifecycle
 ├── renderer/      # Layoutlib-based rendering for screenshots
-├── demo/          # Demo application
 └── test-fixtures/ # Test APK files (gitignored, download via gradle task)
 ```
 
@@ -57,30 +65,17 @@ testpilot/
   ```
 - `kotlin("test")` alone doesn't include all JUnit Jupiter features
 
-### Touch Event Dispatch
-
-- Android touch event flow: `Window → ViewGroup.dispatchTouchEvent() → child.dispatchTouchEvent() → onTouchEvent()`
-- ViewGroup must track touch target for subsequent MOVE/UP events after ACTION_DOWN
-- Hit testing iterates children in reverse order (top-most first)
-- `OnTouchListener` is called before `onTouchEvent()` and can consume the event
-
 ### Testing Best Practices
 
-- Stub activities don't call `setContentView()`, so `window.contentView` is null
-- For touch event integration tests, create test views manually and set as content
 - Use `@EnabledIf("methodName")` for conditional tests (e.g., when test APK exists)
 
 ### Kotlin API Design
 
 - Use `init` block for automatic initialization instead of separate `initialize()` method
-- Use default parameters for optional arguments: `fun launch(activity: String? = null)`
-- Return `this` for method chaining in builder-style APIs
-
-### ASM Bytecode Rewriting
-
-- Use `ClassWriter(reader, ClassWriter.COMPUTE_MAXS)` instead of `COMPUTE_FRAMES` to avoid frame computation errors
-- Don't generate code body for native or abstract methods
-- Use `ClassRemapper` for class reference rewriting
+- Use default parameters for optional arguments: `fun launch(activityClassName: String? = null)`
+- `TestPilot` implements `AutoCloseable` — use `use {}` blocks for automatic cleanup
+- `TestPilot` is the session: no separate `ActivitySession` class; lifecycle is managed internally by `launch()` and `close()`
+- Kotlin nested block comments: `/*` inside `/** */` KDoc opens a nested comment level
 
 ### Layoutlib Integration
 
@@ -125,13 +120,20 @@ LayoutRenderer (our code)
 
 This architecture is a "hack standing on giants' shoulders". When Google changes internal implementations, we must follow. This explains why Paparazzi version updates often lag behind Android Studio.
 
-**Ideal architecture** would use dependency injection with stable interfaces:
-```kotlin
-interface ResourceRepository {
-    fun getConfiguredResources(config: FolderConfiguration): Map<...>
-}
-class LayoutRenderer(private val resourceRepository: ResourceRepository)
-```
+### Layoutlib as Android Framework Provider
+
+- layoutlib (`com.android.tools.layoutlib:layoutlib`) is ~57MB and contains 26,000+ classes including the full Android framework (`android.app.Activity`, `android.widget.*`, `android.view.*`, etc.)
+- No hand-written shims needed — layoutlib classes are the real framework implementation
+- Paparazzi architecture: layoutlib + `BridgeContext` for view rendering
+- Robolectric architecture: `android-all.jar` + `SandboxClassLoader` + Shadow system for lifecycle
+- TestPilot's approach: layoutlib (like Paparazzi) + reflection lifecycle (like Robolectric)
+
+### Reflection-Based Activity Lifecycle
+
+- `LayoutlibActivityController` drives `android.app.Activity` lifecycle via reflection
+- `performCreate(Bundle)`, `performStart()`, `performResume()`, `performPause()`, `performStop()`, `performDestroy()` are package-private methods on `android.app.Activity`
+- Use `setAccessible(true)` to invoke them
+- If a method is not found (API version differences), log a warning and skip
 
 ### Resource Configuration & Resolution
 
@@ -144,74 +146,6 @@ class LayoutRenderer(private val resourceRepository: ResourceRepository)
 - Density matching penalizes scaling up (lower density is worse than higher density for the same distance from target)
 - Screen layout size matching: config size must not exceed device size (contradiction), and larger matching sizes are preferred
 
-### Simulator-Loader Module Boundary
-
-- The simulator module must remain dependency-free (no loader imports) — use interfaces to bridge
-- `ResourceResolver` interface lives in simulator; implementation (`ResourceTableResolver`) lives in loader
-- `Resources.resolver` is set via property injection in `TestPilot.launch()` after construction
-- `Configuration` data class lives in simulator (needed by `Resources`) and is mapped from `android/content/res/Configuration` via bytecode rewriting
-- When adding new Android class shims, always add the corresponding bytecode mapping in `BytecodeRewriter.classMapping`
-
-### Fragment Support
-
-- Fragment shims live in `simulator/app/` package (`io.johnsonlee.testpilot.simulator.app`), not `simulator/activity/`, to mirror `android.app.Fragment`
-- Fragment lifecycle is driven by `FragmentManager` via `internal performXxx()` methods — same pattern as `Activity`/`ActivityController`
-- Fragment lifecycle dispatch order matters:
-  - Forward (start, resume): Activity callback runs first, then `FragmentManager.dispatchXxx()` advances fragments
-  - Backward (pause, stop, destroy): `FragmentManager.dispatchXxx()` tears down fragments first, then Activity callback runs
-- `FragmentManager` is lazily initialized on `Activity` via `_fragmentManager: FragmentManager?` — lifecycle dispatch uses `_fragmentManager?.dispatchXxx()` to skip dispatch entirely when no fragments are used
-- When a fragment is added to an already-resumed activity, it advances through the full lifecycle (attach → create → createView → viewCreated → start → resume) immediately in `addFragment()`
-- When a fragment is added to a created-only activity, it stops at `onViewCreated`; subsequent `dispatchStart()`/`dispatchResume()` calls from Activity lifecycle advance it further
-- `Fragment.id` stores the container view ID (matching Android's `Fragment.getId()` behavior), not a unique fragment identifier — `findFragmentById()` looks up by container ID
-- Back stack entries must track which fragments were removed during a `Replace` operation, so `popBackStack()` can re-add them
-- Both `android.app.Fragment` (deprecated framework) and `androidx.fragment.app.Fragment` map to the same simulator class
-- `AppCompatActivity` maps to `FragmentActivity` since it extends `FragmentActivity` in real AndroidX
-
-### Canvas Rendering & Pixel-Level Testing
-
-- The simulator's `Canvas` is a command recorder (`List<DrawCommand>`), not a pixel rasteriser — `Window.draw()` returns a Canvas of abstract commands, not an image
-- `Canvas.toImage()` (in `CanvasRenderer.kt`) bridges this gap by replaying `DrawCommand` objects onto `java.awt.Graphics2D` to produce a `BufferedImage`
-- The rasteriser must maintain a `save()`/`restore()` stack of `AffineTransform` to correctly handle `ViewGroup.drawChildren()` which wraps each child in save → translate → draw → restore
-- Fragment views added to a container are not automatically measured/laid out — call `window.measureAndLayout()` before `window.draw()` to ensure the new children have non-zero dimensions
-- Use `MATCH_PARENT` layout params on fragment views for pixel tests so they fill the container; `WRAP_CONTENT` with a bare `View` yields 0×0 (suggestedMinimumWidth/Height defaults to 0)
-- `ViewGroup.drawChildren()` skips `GONE` views, so hidden fragments produce no draw commands and no pixels — this is the mechanism behind hide/show rendering tests
-- For deterministic pixel tests, use solid-color `View` subclasses (override `draw()` with `canvas.drawRect(…)`) rather than text rendering, which varies across JDK versions
-- `BufferedImage.getRGB(x, y)` returns ARGB in the same format as `io.johnsonlee.testpilot.simulator.graphics.Color` constants, so direct `==` comparison works
-- Use small `Window(100, 100)` for pixel tests to keep images small and assertions readable
-
-### RecyclerView Support
-
-- RecyclerView shim uses a simplified non-recycling model: `populateItems()` calls `onCreateViewHolder` + `onBindViewHolder` for every item, adding all views as children — no view pool or recycling
-- Adapter binding is triggered by property setters: setting `adapter` (when `layoutManager` is non-null) or `layoutManager` (when `adapter` is non-null) calls `populateItems()`; setting adapter to `null` clears all children
-- All `notifyXxx()` methods delegate to a single `dataObserver` callback that re-runs `populateItems()` — no incremental updates
-- `Adapter.createAndBindViewHolder` is an internal helper that uses `@Suppress("UNCHECKED_CAST")` to bridge the `Adapter<*>` wildcard projection back to `Adapter<ViewHolder>` for calling the typed abstract methods
-- `LayoutManager.onLayoutChildren(recyclerView)` is called from `RecyclerView.onLayout` — the LayoutManager receives the RecyclerView to access children, width/height, and measure specs
-- `LinearLayoutManager` and `GridLayoutManager` call `ViewGroup.getChildMeasureSpec()` (qualified, not inherited) because they are nested classes of `RecyclerView`, not subclasses of `ViewGroup` — unqualified `getChildMeasureSpec` won't resolve
-- `GridLayoutManager` extends `LinearLayoutManager` (mirrors AndroidX hierarchy) so it inherits orientation/reverseLayout properties and the `HORIZONTAL`/`VERTICAL` constants
-- AndroidX `LinearLayoutManager` and `GridLayoutManager` are top-level classes but map to inner classes in the shim (`RecyclerView$LinearLayoutManager`, `RecyclerView$GridLayoutManager`) — ASM's `Remapper.map()` handles the `$` separator in internal names transparently
-- Stub inner classes (`ItemDecoration`, `ItemAnimator`, `OnScrollListener`, `State`, `Rect`) prevent `NoClassDefFoundError` for apps that reference these types without actually using their functionality
-- For RecyclerView pixel tests, use `getItemViewType` to pass color values to `onCreateViewHolder`, since `ColorView`'s fill color is set at construction time and `onBindViewHolder` can't change it
-- `totalContentWidth()`/`totalContentHeight()` must iterate all children (not just the last) to handle grids with incomplete last row/column — the last child may not occupy the maximum right/bottom position
-- `scrollToPosition` uses minimum-scroll semantics: no-op if item is already visible; otherwise scrolls just enough to bring the near edge into view (top/left if above, bottom/right if below)
-- `scrollBy` gates dx/dy on layout manager orientation — vertical layouts only scroll Y, horizontal layouts only scroll X
-- `scrollToPositionWithOffset(position, offset)` always jumps so item's start edge is `offset` px from viewport start; lives on `LinearLayoutManager`, delegates via `LayoutManager.recyclerView` back-reference
-- `LayoutManager` holds an `internal var recyclerView: RecyclerView?` back-reference, wired in the `layoutManager` property setter (set on assign, cleared on previous)
-- `dispatchTouchEvent` must offset event coordinates by `scrollOffsetX`/`scrollOffsetY` before delegating to `super` — `draw()` translates by negative scroll offset, so touch coords need the inverse transform to match child layout positions
-- Simulator's `View.setOnClickListener` does NOT set `isClickable = true` (unlike real Android) — touch-dispatch tests must explicitly set `isClickable = true` on views that need to receive click events
-
-### ViewPager Support
-
-- PagerAdapter contract: `instantiateItem` adds a view to the container and returns an opaque key; `isViewFromObject` maps views back to keys; `destroyItem` removes the view and cleans up the key
-- Page window recycling: only `currentItem ± offscreenPageLimit` pages are alive at any time; `updatePageWindow()` calls `destroyItem` for pages leaving the window and `instantiateItem` for pages entering it
-- `onLayout` must use `isViewFromObject` to find each child's page index (children aren't in page order and not all pages exist as children) — `findPageIndex(child)` iterates `pageKeys` checking `isViewFromObject`
-- Scroll offset = `currentItem * width`; set in `onLayout` to handle initial layout timing
-- `populatePages()` resets `currentItem` to 0 and re-creates the entire `pageKeys` array — called on adapter set and `notifyDataSetChanged`
-- FragmentPagerAdapter uses `add(fragment, tag)` with `containerId=0` so FragmentManager runs the lifecycle without touching any container; the adapter manually adds `fragment.view` to the ViewPager
-- FragmentPagerAdapter uses `hide` in `destroyItem` (keeps fragments alive in FragmentManager); FragmentStatePagerAdapter uses `remove` (fully destroys them)
-- `PagerAdapter` is top-level in AndroidX (`androidx.viewpager.widget.PagerAdapter`) but maps to inner `ViewPager$PagerAdapter` in the shim — same pattern as `LinearLayoutManager` mapping to `RecyclerView$LinearLayoutManager`
-- Both `android.support.v4.view.ViewPager` and `androidx.viewpager.widget.ViewPager` map to the same shim class
-- Fragment tag convention: `"android:switcher:$containerId:$position"` — used by both `FragmentPagerAdapter` and `FragmentStatePagerAdapter` for fragment lookup
-
 ### Golden Image Testing
 
 - Use record mode (`-Dtestpilot.record=true`) to capture baseline images
@@ -222,6 +156,6 @@ class LayoutRenderer(private val resourceRepository: ResourceRepository)
 ## Code Style
 
 - Package: `io.johnsonlee.testpilot`
-- Simulator classes mirror Android package structure: `io.johnsonlee.testpilot.simulator.view.View`
+- Simulator types use `DeviceConfiguration`, `AppResources`, `AppResourceResolver` (not Android SDK names, to avoid clashing with layoutlib)
 - Use AssertJ for test assertions
 - Commit messages follow conventional commits format

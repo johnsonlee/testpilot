@@ -12,7 +12,9 @@ import java.awt.image.BufferedImage
  *
  *     @Test
  *     fun `login screen should match golden`() {
- *         val screenshot = session.takeScreenshot(loginLayoutXml)
+ *         val screenshot = LayoutRenderer(RenderEnvironment(), DeviceConfig.DEFAULT).use { renderer ->
+ *             renderer.render(loginLayoutXml, "Theme.Material.Light.NoActionBar").image
+ *         }
  *         screenshot.assertMatchesSnapshot(snapshots, "login_screen")
  *     }
  * }
