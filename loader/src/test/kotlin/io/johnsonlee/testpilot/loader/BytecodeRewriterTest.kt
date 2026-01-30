@@ -98,6 +98,66 @@ class BytecodeRewriterTest {
     }
 
     @Test
+    fun `should map AndroidX RecyclerView to TestPilot RecyclerView`() {
+        val mapped = rewriter.getMappedName("androidx/recyclerview/widget/RecyclerView")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView")
+    }
+
+    @Test
+    fun `should map RecyclerView Adapter to TestPilot RecyclerView Adapter`() {
+        val mapped = rewriter.getMappedName("androidx/recyclerview/widget/RecyclerView\$Adapter")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView\$Adapter")
+    }
+
+    @Test
+    fun `should map RecyclerView ViewHolder to TestPilot RecyclerView ViewHolder`() {
+        val mapped = rewriter.getMappedName("androidx/recyclerview/widget/RecyclerView\$ViewHolder")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView\$ViewHolder")
+    }
+
+    @Test
+    fun `should map RecyclerView LayoutManager to TestPilot RecyclerView LayoutManager`() {
+        val mapped = rewriter.getMappedName("androidx/recyclerview/widget/RecyclerView\$LayoutManager")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView\$LayoutManager")
+    }
+
+    @Test
+    fun `should map RecyclerView ItemDecoration to TestPilot RecyclerView ItemDecoration`() {
+        val mapped = rewriter.getMappedName("androidx/recyclerview/widget/RecyclerView\$ItemDecoration")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView\$ItemDecoration")
+    }
+
+    @Test
+    fun `should map RecyclerView ItemAnimator to TestPilot RecyclerView ItemAnimator`() {
+        val mapped = rewriter.getMappedName("androidx/recyclerview/widget/RecyclerView\$ItemAnimator")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView\$ItemAnimator")
+    }
+
+    @Test
+    fun `should map RecyclerView OnScrollListener to TestPilot RecyclerView OnScrollListener`() {
+        val mapped = rewriter.getMappedName("androidx/recyclerview/widget/RecyclerView\$OnScrollListener")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView\$OnScrollListener")
+    }
+
+    @Test
+    fun `should map RecyclerView State to TestPilot RecyclerView State`() {
+        val mapped = rewriter.getMappedName("androidx/recyclerview/widget/RecyclerView\$State")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView\$State")
+    }
+
+    @Test
+    fun `should map LinearLayoutManager to TestPilot RecyclerView LinearLayoutManager`() {
+        val mapped = rewriter.getMappedName("androidx/recyclerview/widget/LinearLayoutManager")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView\$LinearLayoutManager")
+    }
+
+    @Test
+    fun `should map GridLayoutManager to TestPilot RecyclerView GridLayoutManager`() {
+        val mapped = rewriter.getMappedName("androidx/recyclerview/widget/GridLayoutManager")
+        assertThat(mapped).isEqualTo("io/johnsonlee/testpilot/simulator/widget/RecyclerView\$GridLayoutManager")
+    }
+
+    @Test
     fun `should not map non-Android classes`() {
         val mapped = rewriter.getMappedName("com/example/MyClass")
         assertThat(mapped).isEqualTo("com/example/MyClass")
