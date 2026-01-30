@@ -19,6 +19,7 @@ class TestPilot private constructor(
 ) : AutoCloseable {
     private val classLoader: ApkClassLoader
     private var controller: LayoutlibActivityController? = null
+    private var applicationController: LayoutlibApplicationController? = null
 
     // Parsed APK data
     private var manifest: BinaryXmlParser.XmlDocument? = null
@@ -28,9 +29,17 @@ class TestPilot private constructor(
     var packageName: String? = null
         private set
 
+    /** Application class name from AndroidManifest.xml (android:name on <application>). */
+    var applicationClassName: String? = null
+        private set
+
     /** All activities declared in the manifest. */
     var activities: List<ActivityInfo> = emptyList()
         private set
+
+    /** The Application instance, or null if not yet initialized (call [launch] first). */
+    val application: android.app.Application?
+        get() = applicationController?.get()
 
     data class ActivityInfo(
         val name: String,
@@ -132,6 +141,10 @@ class TestPilot private constructor(
             }
         }
 
+        // Extract Application class name (android:name on <application>)
+        val appName = application?.attributes?.find { it.name == "name" }?.value?.toString()
+        applicationClassName = appName?.let { resolveClassName(it) }
+
         // Parse activities
         application?.children?.filter { it.name == "activity" }?.forEach { activityElement ->
             val name = activityElement.attributes.find { it.name == "name" }?.value?.toString() ?: return@forEach
@@ -171,13 +184,15 @@ class TestPilot private constructor(
      * Launches an activity. Lifecycle is managed internally
      * (previous activity is destroyed, new one is created, started, and resumed).
      *
+     * Follows the AOSP launch sequence:
+     * 1. Ensure Application (handleBindApplication): attach + onCreate
+     * 2. Instantiate Activity (Instrumentation.newActivity)
+     * 3. Activity.attach(context, activityThread, instrumentation, ...)
+     * 4. Activity.performCreate → performStart → performResume
+     *
      * @param activityClassName Fully qualified class name, or null for the default launcher activity.
-     * @param configuration The device configuration for resource resolution.
      */
-    fun launch(
-        activityClassName: String? = null,
-        configuration: DeviceConfiguration = DeviceConfiguration.DEFAULT
-    ) {
+    fun launch(activityClassName: String? = null) {
         val targetActivity = activityClassName ?: findLauncherActivity()?.name
             ?: throw IllegalStateException("No launcher activity found in manifest")
 
@@ -187,41 +202,139 @@ class TestPilot private constructor(
 
         println("[TestPilot] Launching: $targetActivity")
 
-        // Try to load the activity class
+        // AOSP step 1: Ensure Application (handleBindApplication)
+        ensureApplication()
+
+        // AOSP step 2: Instantiate Activity (Instrumentation.newActivity)
+        val activity = instantiateActivity(targetActivity) ?: return
+
+        // AOSP step 3: activity.attach(...)
+        try {
+            attachActivity(activity, targetActivity)
+        } catch (e: Exception) {
+            println("[TestPilot] Warning: Activity.attach() failed: ${e.message}")
+            // Continue — some fields may still be partially set
+        }
+
+        // AOSP step 4: Instrumentation.callActivityOnCreate → performCreate → onCreate
+        val newController = LayoutlibActivityController(activity)
+        newController.create().start().resume()
+
+        controller = newController
+    }
+
+    /**
+     * Follows AOSP `handleBindApplication` sequence:
+     * 1. `LoadedApk.makeApplicationInner()` — instantiate + `app.attach(context)`
+     * 2. `mInstrumentation.callApplicationOnCreate(app)` — `app.onCreate()`
+     */
+    private fun ensureApplication() {
+        if (applicationController != null) return
+
+        val controller = LayoutlibApplicationController.create(applicationClassName, classLoader)
+        val context = StubContext(packageName ?: "", classLoader)
+        controller.attach(context)
+        controller.onCreate()
+
+        applicationController = controller
+        println("[TestPilot] Application initialized: ${applicationClassName ?: "android.app.Application"}")
+    }
+
+    /**
+     * Follows AOSP `performLaunchActivity` step 4: `activity.attach(...)`.
+     *
+     * Provides the Activity with a base context, ActivityThread, Instrumentation,
+     * Application reference, and other framework objects needed before `onCreate()`.
+     */
+    private fun attachActivity(activity: android.app.Activity, activityClassName: String) {
+        val context = StubContext(packageName ?: "", classLoader)
+        val activityThread = android.app.ActivityThread::class.java
+            .getDeclaredConstructor().apply { isAccessible = true }.newInstance()
+        val instrumentation = android.app.Instrumentation()
+        val activityInfo = android.content.pm.ActivityInfo().apply {
+            name = activityClassName
+            packageName = this@TestPilot.packageName
+        }
+        val intent = android.content.Intent().apply {
+            component = android.content.ComponentName(
+                this@TestPilot.packageName ?: "", activityClassName
+            )
+        }
+        val config = android.content.res.Configuration()
+        val app = applicationController!!.get()
+
+        // AOSP performLaunchActivity step 4: activity.attach(...)
+        // Find the 19-param attach() by scanning declared methods, because several
+        // parameter types (NonConfigurationInstances, IVoiceInteractor, ActivityConfigCallback)
+        // are package-private and can't be referenced directly from Kotlin.
+        val attachMethod = android.app.Activity::class.java.declaredMethods
+            .filter { it.name == "attach" }
+            .maxByOrNull { it.parameterCount }
+            ?: throw NoSuchMethodException("Activity.attach() not found")
+        attachMethod.isAccessible = true
+
+        // Build args matching the parameter types positionally:
+        // context, activityThread, instrumentation, token, ident,
+        // application, intent, activityInfo, title, parent,
+        // embeddedID, lastNCI, config, referrer, voiceInteractor,
+        // window, configCallback, assistToken, shareableActivityToken
+        val args = arrayOfNulls<Any>(attachMethod.parameterCount)
+        val paramTypes = attachMethod.parameterTypes
+        for (i in paramTypes.indices) {
+            args[i] = when (paramTypes[i]) {
+                android.content.Context::class.java -> context
+                android.app.ActivityThread::class.java -> activityThread
+                android.app.Instrumentation::class.java -> instrumentation
+                android.app.Application::class.java -> app
+                android.content.Intent::class.java -> intent
+                android.content.pm.ActivityInfo::class.java -> activityInfo
+                android.content.res.Configuration::class.java -> config
+                Int::class.javaPrimitiveType -> 0
+                else -> {
+                    // For IBinder params (token, assistToken, shareableActivityToken),
+                    // provide Binder instances; everything else gets null.
+                    if (android.os.IBinder::class.java.isAssignableFrom(paramTypes[i])) {
+                        android.os.Binder()
+                    } else {
+                        null
+                    }
+                }
+            }
+        }
+        attachMethod.invoke(activity, *args)
+    }
+
+    /**
+     * Instantiates an Activity class from the APK classloader.
+     * Follows AOSP `Instrumentation.newActivity(cl, className, intent)`.
+     */
+    private fun instantiateActivity(className: String): android.app.Activity? {
         val activityClass = try {
-            classLoader.loadClass(targetActivity)
+            classLoader.loadClass(className)
         } catch (e: ClassNotFoundException) {
-            println("[TestPilot] Warning: Activity class not found: $targetActivity")
-            null
+            println("[TestPilot] Warning: Activity class not found: $className")
+            return null
         } catch (e: VerifyError) {
             println("[TestPilot] Warning: Bytecode verification failed: ${e.message}")
-            null
+            return null
         } catch (e: Throwable) {
             println("[TestPilot] Warning: Failed to load class: ${e.message}")
-            null
+            return null
         }
 
-        // Try to instantiate the actual activity class
-        if (activityClass == null || !android.app.Activity::class.java.isAssignableFrom(activityClass)) {
-            println("[TestPilot] Warning: Activity class not compatible with android.app.Activity: $targetActivity")
-            return
+        if (!android.app.Activity::class.java.isAssignableFrom(activityClass)) {
+            println("[TestPilot] Warning: $className is not an Activity")
+            return null
         }
 
-        val activity: android.app.Activity = try {
+        return try {
             val constructor = activityClass.getDeclaredConstructor()
             constructor.isAccessible = true
             constructor.newInstance() as android.app.Activity
         } catch (e: Throwable) {
-            println("[TestPilot] Warning: Failed to instantiate activity: ${e.javaClass.simpleName}: ${e.message?.take(100)}")
-            return
+            println("[TestPilot] Warning: Failed to instantiate: ${e.message?.take(100)}")
+            null
         }
-
-        val newController = LayoutlibActivityController(activity)
-
-        // Drive lifecycle
-        newController.create().start().resume()
-
-        controller = newController
     }
 
     /**
@@ -230,6 +343,8 @@ class TestPilot private constructor(
     override fun close() {
         controller?.destroy()
         controller = null
+        applicationController?.onTerminate()
+        applicationController = null
         outputDir.deleteRecursively()
     }
 
