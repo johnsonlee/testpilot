@@ -298,7 +298,7 @@ class ViewMeasureSpecTest {
   - [x] Create renderer module
   - [x] Implement `takeScreenshot()` API
   - [x] Visual comparison utilities (ImageComparator, SnapshotManager, assertions)
-- [ ] Complete Resources system with qualifiers
+- [x] Complete Resources system with qualifiers
 - [ ] Fragment support
 - [ ] RecyclerView
 - [ ] ViewPager
